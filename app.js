@@ -25,10 +25,11 @@ const app = {
         try {
             document.getElementById('error').innerHTML = '';
 
-            const [status, jobs, agents] = await Promise.all([
+            const [status, jobs, agents, leaderInfo] = await Promise.all([
                 this.fetchAPI('/v1/status'),
                 this.fetchAPI('/v1/jobs'),
-                this.fetchAPI('/v1/agents')
+                this.fetchAPI('/v1/agents'),
+                this.fetchAPI('/leader')
             ]);
 
             this.agents = agents;
@@ -37,9 +38,7 @@ const app = {
             document.getElementById('agentCount').textContent = status.agents;
             document.getElementById('runningTasks').textContent = status.running_tasks;
             document.getElementById('totalTasks').textContent = status.total_tasks;
-
-            // Try to detect leader (agent with most recent heartbeat or just show connected endpoint)
-            document.getElementById('leaderAddr').textContent = this.getEndpoint().replace('http://', '');
+            document.getElementById('leaderAddr').textContent = leaderInfo.leader || 'unknown';
 
             // Agents table
             const agentsBody = document.querySelector('#agentsTable tbody');
