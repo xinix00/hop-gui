@@ -6,6 +6,7 @@ const app = {
     agents: [],
     status: null,
     jobs: [],
+    capacityCache: {}, // endpoint -> {cpu_cores, memory_bytes}
 
     getEndpoint() {
         const ep = document.getElementById('endpoint').value;
@@ -17,6 +18,53 @@ const app = {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         if (resp.status === 204) return null;
         return resp.json();
+    },
+
+    async fetchAgentCapacity(endpoint) {
+        // Return cached value if we have it
+        if (this.capacityCache[endpoint]) {
+            return this.capacityCache[endpoint];
+        }
+        try {
+            const resp = await fetch(`${endpoint}/capacity`);
+            if (resp.ok) {
+                const data = await resp.json();
+                this.capacityCache[endpoint] = data;
+                return data;
+            }
+        } catch (e) {
+            // Ignore - agent might not support /capacity yet
+        }
+        return null;
+    },
+
+    formatBytes(bytes) {
+        if (!bytes) return '-';
+        const gb = bytes / (1024 * 1024 * 1024);
+        if (gb >= 1) return `${gb.toFixed(1)} GB`;
+        const mb = bytes / (1024 * 1024);
+        return `${mb.toFixed(0)} MB`;
+    },
+
+    renderAgentsTable() {
+        const agentsBody = document.querySelector('#agentsTable tbody');
+        if (!this.agents.length) {
+            agentsBody.innerHTML = '<tr><td colspan="5" class="empty">No agents</td></tr>';
+            return;
+        }
+        agentsBody.innerHTML = this.agents.map(a => {
+            const cap = this.capacityCache[a.endpoint];
+            const cpuStr = cap ? `${cap.cpu_cores} cores` : '-';
+            const memStr = cap ? this.formatBytes(cap.memory_bytes) : '-';
+            return `
+                <tr>
+                    <td><code>${a.id}</code></td>
+                    <td><code>${a.endpoint}</code></td>
+                    <td>${cpuStr}</td>
+                    <td>${memStr}</td>
+                    <td>${this.formatTime(a.last_seen)}</td>
+                </tr>`;
+        }).join('');
     },
 
     async connect() {
@@ -98,15 +146,13 @@ const app = {
             document.getElementById('totalTasks').textContent = status.total_tasks;
             document.getElementById('leaderAddr').textContent = leaderInfo.leader || 'unknown';
 
-            // Agents table
-            const agentsBody = document.querySelector('#agentsTable tbody');
-            agentsBody.innerHTML = agents.length ? agents.map(a => `
-                <tr>
-                    <td><code>${a.id}</code></td>
-                    <td><code>${a.endpoint}</code></td>
-                    <td>${this.formatTime(a.last_seen)}</td>
-                </tr>
-            `).join('') : '<tr><td colspan="3" class="empty">No agents</td></tr>';
+            // Fetch capacity for new agents (async, don't block)
+            for (const a of agents) {
+                if (!this.capacityCache[a.endpoint]) {
+                    this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
+                }
+            }
+            this.renderAgentsTable();
 
             // Count running tasks per job
             const runningPerJob = {};
