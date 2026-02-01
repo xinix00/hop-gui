@@ -157,6 +157,21 @@ label {
 .form-row:last-child { margin-bottom: 0; }
 .form-row input { flex: 1; }
 
+textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 6px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 13px;
+    resize: vertical;
+    margin-bottom: 12px;
+}
+
+textarea:focus { outline: none; border-color: var(--accent); }
+
 /* Table */
 table {
     width: 100%;

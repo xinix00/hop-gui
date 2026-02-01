@@ -38,44 +38,29 @@ const app = {
     },
 
     async startJob() {
-        const name = document.getElementById('jobName').value.trim();
-        const command = document.getElementById('jobCommand').value.trim();
-        const count = parseInt(document.getElementById('jobCount').value) || 1;
-        const envStr = document.getElementById('jobEnv').value.trim();
-
-        if (!name || !command) {
-            alert('Name and command are required');
+        const jsonStr = document.getElementById('jobJson').value.trim();
+        if (!jsonStr) {
+            alert('Enter job JSON');
             return;
         }
 
-        const job = { name, command, count };
-
-        // Parse env vars
-        if (envStr) {
-            job.env = {};
-            envStr.split(',').forEach(pair => {
-                const [key, ...rest] = pair.split('=');
-                if (key && rest.length) {
-                    job.env[key.trim()] = rest.join('=').trim();
-                }
-            });
+        let job;
+        try {
+            job = JSON.parse(jsonStr);
+        } catch (e) {
+            alert('Invalid JSON: ' + e.message);
+            return;
         }
 
         try {
-            const result = await this.fetchAPI('/v1/jobs', {
+            await this.fetchAPI('/v1/jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(job)
             });
 
-            // Clear form and hide
-            document.getElementById('jobName').value = '';
-            document.getElementById('jobCommand').value = '';
-            document.getElementById('jobCount').value = '1';
-            document.getElementById('jobEnv').value = '';
+            document.getElementById('jobJson').value = '';
             this.toggleNewJob();
-
-            // Refresh to show new job
             this.refresh();
         } catch (err) {
             alert('Failed to start job: ' + err.message);
