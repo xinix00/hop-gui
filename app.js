@@ -177,8 +177,8 @@ const app = {
 
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
 
-            // Auto-refresh
-            if (document.getElementById('autoRefresh').checked && !this.refreshInterval) {
+            // Auto-refresh (always on)
+            if (!this.refreshInterval) {
                 this.refreshInterval = setInterval(() => this.refresh(), 5000);
             }
         } catch (err) {
@@ -261,15 +261,6 @@ const app = {
 };
 
 // Event listeners
-document.getElementById('autoRefresh').addEventListener('change', (e) => {
-    if (!e.target.checked) {
-        clearInterval(app.refreshInterval);
-        app.refreshInterval = null;
-    } else {
-        app.refresh();
-    }
-});
-
 document.getElementById('endpoint').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') app.connect();
 });
