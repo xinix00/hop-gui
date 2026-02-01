@@ -86,9 +86,8 @@ label {
     min-width: 100px;
 }
 
-.stat.leader { flex: 1; }
 .stat-value { font-size: 28px; font-weight: 600; color: var(--text); }
-.stat.leader .stat-value { font-size: 14px; font-family: monospace; color: var(--accent); }
+.stat-value code { font-size: 16px; background: none; padding: 0; color: var(--text); }
 .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
 
 /* Tabs */
