@@ -50,17 +50,31 @@ const app = {
                 </tr>
             `).join('') : '<tr><td colspan="3" class="empty">No agents</td></tr>';
 
+            // Count running tasks per job
+            const runningPerJob = {};
+            for (const agentTasks of Object.values(status.tasks_by_agent || {})) {
+                for (const t of agentTasks) {
+                    if (t.state === 'running') {
+                        runningPerJob[t.job_id] = (runningPerJob[t.job_id] || 0) + 1;
+                    }
+                }
+            }
+
             // Jobs table
             const jobsBody = document.querySelector('#jobsTable tbody');
-            jobsBody.innerHTML = jobs.length ? jobs.map(job => `
+            jobsBody.innerHTML = jobs.length ? jobs.map(job => {
+                const expected = job.count === -1 ? status.agents : (job.count || 1);
+                const running = runningPerJob[job.id] || 0;
+                const ok = running >= expected;
+                return `
                 <tr>
                     <td><code>${job.id}</code></td>
                     <td>${job.name}</td>
                     <td><code>${this.truncate(job.command, 30)}</code></td>
-                    <td>${job.count === -1 ? 'all' : (job.count || 1)}</td>
+                    <td class="${ok ? '' : 'error-text'}">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                     <td><button class="danger small" onclick="app.stopJob('${job.id}')">Stop</button></td>
-                </tr>
-            `).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
+                </tr>`;
+            }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
 
             // Tasks table (flattened from all agents)
             const tasksBody = document.querySelector('#tasksTable tbody');

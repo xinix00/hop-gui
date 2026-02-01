@@ -124,6 +124,8 @@ code {
 .status.stopped { background: #8882; color: #888; }
 .status.failed { background: #f442; color: #f44; }
 
+.error-text { color: #f44; font-weight: bold; }
+
 .error {
     background: #f442;
     color: #f44;
