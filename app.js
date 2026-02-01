@@ -39,11 +39,42 @@ const app = {
     },
 
     formatBytes(bytes) {
-        if (!bytes) return '-';
+        if (bytes === null || bytes === undefined) return '-';
+        if (bytes === 0) return '0';
         const gb = bytes / (1024 * 1024 * 1024);
         if (gb >= 1) return `${gb.toFixed(1)} GB`;
         const mb = bytes / (1024 * 1024);
-        return `${mb.toFixed(0)} MB`;
+        if (mb >= 1) return `${mb.toFixed(0)} MB`;
+        const kb = bytes / 1024;
+        if (kb >= 1) return `${kb.toFixed(0)} KB`;
+        return `${bytes} B`;
+    },
+
+    getUsedResourcesPerAgent() {
+        // Calculate used CPU shares and memory per agent from running tasks
+        const used = {}; // agentId -> {cpu, mem}
+        if (!this.status?.tasks_by_agent || !this.jobs) return used;
+
+        // Build job lookup
+        const jobMap = {};
+        for (const job of this.jobs) {
+            jobMap[job.id] = job;
+        }
+
+        for (const [agentId, tasks] of Object.entries(this.status.tasks_by_agent)) {
+            let cpu = 0, mem = 0;
+            for (const t of tasks) {
+                if (t.state === 'running') {
+                    const job = jobMap[t.job_id];
+                    if (job) {
+                        cpu += job.cpu_shares || 0;
+                        mem += job.memory_limit || 0;
+                    }
+                }
+            }
+            used[agentId] = { cpu, mem };
+        }
+        return used;
     },
 
     renderAgentsTable() {
@@ -52,10 +83,28 @@ const app = {
             agentsBody.innerHTML = '<tr><td colspan="5" class="empty">No agents</td></tr>';
             return;
         }
+
+        const usedPerAgent = this.getUsedResourcesPerAgent();
+
         agentsBody.innerHTML = this.agents.map(a => {
             const cap = this.capacityCache[a.endpoint];
-            const cpuStr = cap ? `${cap.cpu_cores} cores` : '-';
-            const memStr = cap ? this.formatBytes(cap.memory_bytes) : '-';
+            const used = usedPerAgent[a.id] || { cpu: 0, mem: 0 };
+
+            // CPU: show "used/total" as cores (shares / 1024 = cores)
+            let cpuStr = '-';
+            if (cap) {
+                const usedCores = (used.cpu / 1024).toFixed(1);
+                cpuStr = `${usedCores}/${cap.cpu_cores}`;
+            }
+
+            // Memory: show "used/total" compact (e.g. "12GB/16GB")
+            let memStr = '-';
+            if (cap) {
+                const usedGB = (used.mem / (1024 * 1024 * 1024)).toFixed(1);
+                const totalGB = (cap.memory_bytes / (1024 * 1024 * 1024)).toFixed(0);
+                memStr = `${usedGB}GB/${totalGB}GB`;
+            }
+
             return `
                 <tr>
                     <td><code>${a.id}</code></td>
