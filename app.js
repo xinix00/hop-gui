@@ -58,14 +58,14 @@ const app = {
         // Build job lookup
         const jobMap = {};
         for (const job of this.jobs) {
-            jobMap[job.id] = job;
+            jobMap[job.name] = job;
         }
 
         for (const [agentId, tasks] of Object.entries(this.status.tasks_by_agent)) {
             let cpu = 0, mem = 0;
             for (const t of tasks) {
                 if (t.state === 'running') {
-                    const job = jobMap[t.job_id];
+                    const job = jobMap[t.job_name];
                     if (job) {
                         cpu += job.cpu_shares || 0;
                         mem += job.memory_limit || 0;
@@ -164,10 +164,10 @@ const app = {
         }
     },
 
-    async stopJob(jobId) {
-        if (!confirm(`Stop job ${jobId}?`)) return;
+    async stopJob(jobName) {
+        if (!confirm(`Stop job ${jobName}?`)) return;
         try {
-            await this.fetchAPI(`/v1/jobs/${jobId}`, { method: 'DELETE' });
+            await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
             this.refresh();
         } catch (err) {
             alert('Failed to stop job: ' + err.message);
@@ -208,7 +208,7 @@ const app = {
             for (const agentTasks of Object.values(status.tasks_by_agent || {})) {
                 for (const t of agentTasks) {
                     if (t.state === 'running') {
-                        runningPerJob[t.job_id] = (runningPerJob[t.job_id] || 0) + 1;
+                        runningPerJob[t.job_name] = (runningPerJob[t.job_name] || 0) + 1;
                     }
                 }
             }
@@ -217,20 +217,19 @@ const app = {
             const jobsBody = document.querySelector('#jobsTable tbody');
             jobsBody.innerHTML = jobs.length ? jobs.map(job => {
                 const expected = job.count === -1 ? status.agents : (job.count || 1);
-                const running = runningPerJob[job.id] || 0;
+                const running = runningPerJob[job.name] || 0;
                 const ok = running >= expected;
                 const statusClass = ok ? 'status-ok' : 'status-degraded';
                 const statusText = ok ? 'OK' : 'DEGRADED';
                 return `
                 <tr>
-                    <td><code>${job.id}</code></td>
                     <td>${job.name}</td>
                     <td><code>${this.truncate(job.command, 30)}</code></td>
                     <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                     <td class="${statusClass}">${statusText}</td>
-                    <td><button class="danger small" onclick="app.stopJob('${job.id}')">Stop</button></td>
+                    <td><button class="danger small" onclick="app.stopJob('${job.name}')">Stop</button></td>
                 </tr>`;
-            }).join('') : '<tr><td colspan="6" class="empty">No jobs</td></tr>';
+            }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
 
             // Tasks table (flattened from all agents)
             const tasksBody = document.querySelector('#tasksTable tbody');
