@@ -8,7 +8,7 @@ body {
 }
 
 h1 { color: #0f0; }
-h2 { color: #888; font-size: 14px; text-transform: uppercase; margin-bottom: 10px; }
+h2 { color: #888; font-size: 14px; text-transform: uppercase; margin: 0; }
 
 .header {
     display: flex;
@@ -17,15 +17,16 @@ h2 { color: #888; font-size: 14px; text-transform: uppercase; margin-bottom: 10p
     align-items: center;
 }
 
-input[type="text"] {
+input[type="text"], input[type="number"] {
     background: #16213e;
     border: 1px solid #333;
     color: #fff;
     padding: 8px 12px;
     border-radius: 4px;
     font-size: 14px;
-    width: 200px;
 }
+
+.header input[type="text"] { width: 200px; }
 
 input:focus { outline: none; border-color: #0f0; }
 
@@ -43,6 +44,8 @@ button {
 button:hover { background: #0c0; }
 button.danger { background: #f44; }
 button.danger:hover { background: #d33; }
+button.secondary { background: #333; color: #888; }
+button.secondary:hover { background: #444; }
 button.small { padding: 4px 8px; }
 
 label {
@@ -71,20 +74,65 @@ label {
 .stat.leader .stat-value { font-size: 14px; font-family: monospace; }
 .stat-label { font-size: 11px; color: #888; text-transform: uppercase; }
 
-.grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 5px;
     margin-bottom: 20px;
 }
 
+.tab {
+    background: #16213e;
+    color: #888;
+    padding: 10px 20px;
+    border-radius: 8px 8px 0 0;
+    font-weight: normal;
+}
+
+.tab:hover { background: #1e2a4a; }
+.tab.active { background: #0f0; color: #000; font-weight: bold; }
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Panel */
 .panel {
     background: #16213e;
-    border-radius: 8px;
+    border-radius: 0 8px 8px 8px;
     padding: 15px;
     margin-bottom: 20px;
 }
 
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+/* Form */
+.form {
+    background: #0e1628;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.form.hidden { display: none; }
+
+.form-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.form-row:last-child { margin-bottom: 0; }
+
+.form-row input {
+    flex: 1;
+}
+
+/* Table */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -123,6 +171,9 @@ code {
 .status.running { background: #0f02; color: #0f0; }
 .status.stopped { background: #8882; color: #888; }
 .status.failed { background: #f442; color: #f44; }
+
+.status-ok { color: #0f0; }
+.status-degraded { color: #f44; font-weight: bold; }
 
 .error-text { color: #f44; font-weight: bold; }
 

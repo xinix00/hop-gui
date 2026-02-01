@@ -36,32 +36,63 @@
 
     <div id="error"></div>
 
-    <div class="grid">
+    <div class="tabs">
+        <button class="tab active" onclick="app.showTab('agents')">Agents</button>
+        <button class="tab" onclick="app.showTab('jobs')">Jobs</button>
+        <button class="tab" onclick="app.showTab('tasks')">Tasks</button>
+    </div>
+
+    <!-- Agents Tab -->
+    <div id="tab-agents" class="tab-content active">
         <div class="panel">
-            <h2>Agents</h2>
             <table id="agentsTable">
                 <thead><tr><th>ID</th><th>Endpoint</th><th>Last Seen</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
+    </div>
 
+    <!-- Jobs Tab -->
+    <div id="tab-jobs" class="tab-content">
         <div class="panel">
-            <h2>Jobs</h2>
+            <div class="panel-header">
+                <h2>Jobs</h2>
+                <button onclick="app.toggleNewJob()">+ New Job</button>
+            </div>
+
+            <div id="newJobForm" class="form hidden">
+                <div class="form-row">
+                    <input type="text" id="jobName" placeholder="Job name">
+                    <input type="text" id="jobCommand" placeholder="Command (e.g., ./myapp)">
+                </div>
+                <div class="form-row">
+                    <input type="number" id="jobCount" placeholder="Count (-1 = all)" value="1">
+                    <input type="text" id="jobEnv" placeholder="ENV=value,FOO=bar">
+                </div>
+                <div class="form-row">
+                    <button onclick="app.startJob()">Start Job</button>
+                    <button class="secondary" onclick="app.toggleNewJob()">Cancel</button>
+                </div>
+            </div>
+
             <table id="jobsTable">
-                <thead><tr><th>ID</th><th>Name</th><th>Command</th><th>Running</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Name</th><th>Command</th><th>Running</th><th>Status</th><th></th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
     </div>
 
-    <div class="panel">
-        <h2>Tasks</h2>
-        <table id="tasksTable">
-            <thead><tr><th>Task</th><th>Job</th><th>Agent</th><th>Ports</th><th>State</th><th>Logs</th></tr></thead>
-            <tbody></tbody>
-        </table>
+    <!-- Tasks Tab -->
+    <div id="tab-tasks" class="tab-content">
+        <div class="panel">
+            <table id="tasksTable">
+                <thead><tr><th>Task</th><th>Job</th><th>Agent</th><th>Ports</th><th>State</th><th></th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 
+    <!-- Log Modal -->
     <div id="logModal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">

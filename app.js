@@ -4,6 +4,8 @@ const app = {
     currentTask: null,
     currentStream: 'stdout',
     agents: [],
+    status: null,
+    jobs: [],
 
     getEndpoint() {
         const ep = document.getElementById('endpoint').value;
@@ -21,6 +23,75 @@ const app = {
         await this.refresh();
     },
 
+    showTab(name) {
+        // Update tab buttons
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
+
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.getElementById(`tab-${name}`).classList.add('active');
+    },
+
+    toggleNewJob() {
+        document.getElementById('newJobForm').classList.toggle('hidden');
+    },
+
+    async startJob() {
+        const name = document.getElementById('jobName').value.trim();
+        const command = document.getElementById('jobCommand').value.trim();
+        const count = parseInt(document.getElementById('jobCount').value) || 1;
+        const envStr = document.getElementById('jobEnv').value.trim();
+
+        if (!name || !command) {
+            alert('Name and command are required');
+            return;
+        }
+
+        const job = { name, command, count };
+
+        // Parse env vars
+        if (envStr) {
+            job.env = {};
+            envStr.split(',').forEach(pair => {
+                const [key, ...rest] = pair.split('=');
+                if (key && rest.length) {
+                    job.env[key.trim()] = rest.join('=').trim();
+                }
+            });
+        }
+
+        try {
+            const result = await this.fetchAPI('/v1/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(job)
+            });
+
+            // Clear form and hide
+            document.getElementById('jobName').value = '';
+            document.getElementById('jobCommand').value = '';
+            document.getElementById('jobCount').value = '1';
+            document.getElementById('jobEnv').value = '';
+            this.toggleNewJob();
+
+            // Refresh to show new job
+            this.refresh();
+        } catch (err) {
+            alert('Failed to start job: ' + err.message);
+        }
+    },
+
+    async stopJob(jobId) {
+        if (!confirm(`Stop job ${jobId}?`)) return;
+        try {
+            await this.fetchAPI(`/v1/jobs/${jobId}`, { method: 'DELETE' });
+            this.refresh();
+        } catch (err) {
+            alert('Failed to stop job: ' + err.message);
+        }
+    },
+
     async refresh() {
         try {
             document.getElementById('error').innerHTML = '';
@@ -33,6 +104,8 @@ const app = {
             ]);
 
             this.agents = agents;
+            this.status = status;
+            this.jobs = jobs;
 
             // Stats
             document.getElementById('agentCount').textContent = status.agents;
@@ -66,15 +139,18 @@ const app = {
                 const expected = job.count === -1 ? status.agents : (job.count || 1);
                 const running = runningPerJob[job.id] || 0;
                 const ok = running >= expected;
+                const statusClass = ok ? 'status-ok' : 'status-degraded';
+                const statusText = ok ? 'OK' : 'DEGRADED';
                 return `
                 <tr>
                     <td><code>${job.id}</code></td>
                     <td>${job.name}</td>
                     <td><code>${this.truncate(job.command, 30)}</code></td>
-                    <td class="${ok ? '' : 'error-text'}">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
+                    <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
+                    <td class="${statusClass}">${statusText}</td>
                     <td><button class="danger small" onclick="app.stopJob('${job.id}')">Stop</button></td>
                 </tr>`;
-            }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
+            }).join('') : '<tr><td colspan="6" class="empty">No jobs</td></tr>';
 
             // Tasks table (flattened from all agents)
             const tasksBody = document.querySelector('#tasksTable tbody');
@@ -109,16 +185,6 @@ const app = {
             document.getElementById('error').innerHTML = `<div class="error">Error: ${err.message}</div>`;
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
-        }
-    },
-
-    async stopJob(jobId) {
-        if (!confirm(`Stop job ${jobId}?`)) return;
-        try {
-            await this.fetchAPI(`/v1/jobs/${jobId}`, { method: 'DELETE' });
-            this.refresh();
-        } catch (err) {
-            alert('Failed to stop job: ' + err.message);
         }
     },
 
