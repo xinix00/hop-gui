@@ -164,13 +164,13 @@ const app = {
         }
     },
 
-    async stopJob(jobName) {
-        if (!confirm(`Stop job ${jobName}?`)) return;
+    async deleteJob(jobName) {
+        if (!confirm(`Delete job ${jobName}?`)) return;
         try {
             await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
             this.refresh();
         } catch (err) {
-            alert('Failed to stop job: ' + err.message);
+            alert('Failed to delete job: ' + err.message);
         }
     },
 
@@ -227,7 +227,7 @@ const app = {
                     <td><code>${this.truncate(job.command, 30)}</code></td>
                     <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                     <td class="${statusClass}">${statusText}</td>
-                    <td><button class="danger small" onclick="app.stopJob('${job.name}')">Stop</button></td>
+                    <td><button class="danger small" onclick="app.deleteJob('${job.name}')">Delete</button></td>
                 </tr>`;
             }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
 

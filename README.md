@@ -16,7 +16,7 @@ python3 -m http.server 3000
 
 - View cluster status (agents, tasks)
 - View all jobs
-- Stop jobs
+- Delete jobs
 - Auto-refresh every 5 seconds
 
 ## Note
