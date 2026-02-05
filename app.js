@@ -80,7 +80,7 @@ const app = {
     renderAgentsTable() {
         const agentsBody = document.querySelector('#agentsTable tbody');
         if (!this.agents.length) {
-            agentsBody.innerHTML = '<tr><td colspan="5" class="empty">No agents</td></tr>';
+            agentsBody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>';
             return;
         }
 
@@ -111,6 +111,7 @@ const app = {
             return `
                 <tr>
                     <td><code>${a.id}</code></td>
+                    <td><span class="version">${a.version || 'unknown'}</span></td>
                     <td><code>${a.endpoint}</code></td>
                     <td>${cpuStr}</td>
                     <td>${memStr}</td>
