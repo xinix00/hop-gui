@@ -86,7 +86,10 @@ const app = {
 
         const usedPerAgent = this.getUsedResourcesPerAgent();
 
-        agentsBody.innerHTML = this.agents.map(a => {
+        // Sort agents by ID
+        const sorted = [...this.agents].sort((a, b) => a.id.localeCompare(b.id));
+
+        agentsBody.innerHTML = sorted.map(a => {
             const cap = this.capacityCache[a.endpoint];
             const used = usedPerAgent[a.id] || { cpu: 0, mem: 0 };
 
@@ -213,9 +216,10 @@ const app = {
                 }
             }
 
-            // Jobs table
+            // Jobs table (sorted by name)
             const jobsBody = document.querySelector('#jobsTable tbody');
-            jobsBody.innerHTML = jobs.length ? jobs.map(job => {
+            const sortedJobs = jobs.sort((a, b) => a.name.localeCompare(b.name));
+            jobsBody.innerHTML = sortedJobs.length ? sortedJobs.map(job => {
                 const expected = job.count === -1 ? status.agents : (job.count || 1);
                 const running = runningPerJob[job.name] || 0;
                 const ok = running >= expected;
@@ -231,7 +235,7 @@ const app = {
                 </tr>`;
             }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
 
-            // Tasks table (flattened from all agents)
+            // Tasks table (flattened from all agents, sorted by job_name)
             const tasksBody = document.querySelector('#tasksTable tbody');
             const tasks = [];
             for (const [agentId, agentTasks] of Object.entries(status.tasks_by_agent || {})) {
@@ -240,6 +244,12 @@ const app = {
                     tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
                 }
             }
+
+            // Sort by job name, then by ID
+            tasks.sort((a, b) => {
+                const nameCompare = a.job_name.localeCompare(b.job_name);
+                return nameCompare !== 0 ? nameCompare : a.id.localeCompare(b.id);
+            });
 
             tasksBody.innerHTML = tasks.length ? tasks.map(t => `
                 <tr>
