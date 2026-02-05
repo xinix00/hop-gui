@@ -310,9 +310,14 @@ const app = {
 
         this.eventSource = new EventSource(url);
 
+        this.eventSource.onopen = () => {
+            document.getElementById('logOutput').textContent += '[Connected]\n';
+        };
+
         this.eventSource.onmessage = (event) => {
             const output = document.getElementById('logOutput');
-            output.textContent += event.data;
+            // SSE strips trailing newline, add it back
+            output.textContent += event.data + '\n';
             output.scrollTop = output.scrollHeight;
         };
 
