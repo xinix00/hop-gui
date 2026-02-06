@@ -272,9 +272,13 @@ const app = {
                 this.refreshInterval = setInterval(() => this.refresh(), 5000);
             }
         } catch (err) {
-            document.getElementById('error').innerHTML = `<div class="error">Error: ${err.message}</div>`;
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
+            // Show error but keep polling - cluster might come back
+            document.getElementById('error').innerHTML = `<div class="error">Waiting for cluster... (${err.message})</div>`;
+
+            // Keep auto-refresh running
+            if (!this.refreshInterval) {
+                this.refreshInterval = setInterval(() => this.refresh(), 5000);
+            }
         }
     },
 
