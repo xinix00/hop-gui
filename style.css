@@ -90,6 +90,29 @@ label {
 .stat-value code { font-size: 16px; background: none; padding: 0; color: var(--text); }
 .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
 
+.stats.settling .stat { border-color: var(--warning); }
+.stats.settling .stat-label { color: var(--warning); }
+
+@keyframes settle-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.settle-badge {
+    display: none;
+    background: rgba(210, 153, 34, 0.15);
+    color: var(--warning);
+    padding: 8px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(210, 153, 34, 0.4);
+    font-size: 13px;
+    font-weight: 500;
+    animation: settle-pulse 2s ease-in-out infinite;
+}
+
+.settle-badge.active { display: block; }
+
 /* Tabs */
 .tabs {
     display: flex;
@@ -230,6 +253,18 @@ code {
     border-radius: 6px;
     margin: 12px 0;
     border: 1px solid rgba(248, 81, 73, 0.4);
+}
+
+.warning {
+    background: rgba(210, 153, 34, 0.15);
+    color: var(--warning);
+    padding: 8px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(210, 153, 34, 0.4);
+    font-size: 13px;
+    font-weight: 500;
+    animation: settle-pulse 2s ease-in-out infinite;
 }
 
 .refresh {

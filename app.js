@@ -6,7 +6,7 @@ const app = {
     agents: [],
     status: null,
     jobs: [],
-    capacityCache: {}, // endpoint -> {cpu_cores, memory_bytes}
+    capacityByEndpoint: {}, // endpoint -> {cpu_cores, memory_bytes, cpu_used_shares, memory_used_bytes, tasks_running}
 
     getEndpoint() {
         const ep = document.getElementById('endpoint').value;
@@ -21,19 +21,15 @@ const app = {
     },
 
     async fetchAgentCapacity(endpoint) {
-        // Return cached value if we have it
-        if (this.capacityCache[endpoint]) {
-            return this.capacityCache[endpoint];
-        }
         try {
             const resp = await fetch(`${endpoint}/capacity`);
             if (resp.ok) {
                 const data = await resp.json();
-                this.capacityCache[endpoint] = data;
+                this.capacityByEndpoint[endpoint] = data;
                 return data;
             }
         } catch (e) {
-            // Ignore - agent might not support /capacity yet
+            // Ignore - agent might not be reachable
         }
         return null;
     },
@@ -50,63 +46,34 @@ const app = {
         return `${bytes} B`;
     },
 
-    getUsedResourcesPerAgent() {
-        // Calculate used CPU shares and memory per agent from running tasks
-        const used = {}; // agentId -> {cpu, mem}
-        if (!this.status?.tasks_by_agent || !this.jobs) return used;
-
-        // Build job lookup
-        const jobMap = {};
-        for (const job of this.jobs) {
-            jobMap[job.name] = job;
-        }
-
-        for (const [agentId, tasks] of Object.entries(this.status.tasks_by_agent)) {
-            let cpu = 0, mem = 0;
-            for (const t of tasks) {
-                if (t.state === 'running') {
-                    const job = jobMap[t.job_name];
-                    if (job) {
-                        cpu += job.cpu_shares || 0;
-                        mem += job.memory_limit || 0;
-                    }
-                }
-            }
-            used[agentId] = { cpu, mem };
-        }
-        return used;
-    },
-
     renderAgentsTable() {
         const agentsBody = document.querySelector('#agentsTable tbody');
         if (!this.agents.length) {
-            agentsBody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>';
+            agentsBody.innerHTML = '<tr><td colspan="7" class="empty">No agents</td></tr>';
             return;
         }
-
-        const usedPerAgent = this.getUsedResourcesPerAgent();
 
         // Sort agents by ID
         const sorted = [...this.agents].sort((a, b) => a.id.localeCompare(b.id));
 
         agentsBody.innerHTML = sorted.map(a => {
-            const cap = this.capacityCache[a.endpoint];
-            const used = usedPerAgent[a.id] || { cpu: 0, mem: 0 };
+            const cap = this.capacityByEndpoint[a.endpoint];
 
             // CPU: show "used/total" as cores (shares / 1024 = cores)
             let cpuStr = '-';
             if (cap) {
-                const usedCores = (used.cpu / 1024).toFixed(1);
+                const usedCores = (cap.cpu_used_shares / 1024).toFixed(1);
                 cpuStr = `${usedCores}/${cap.cpu_cores}`;
             }
 
-            // Memory: show "used/total" compact (e.g. "12GB/16GB")
+            // Memory: show "used/total" compact
             let memStr = '-';
             if (cap) {
-                const usedGB = (used.mem / (1024 * 1024 * 1024)).toFixed(1);
-                const totalGB = (cap.memory_bytes / (1024 * 1024 * 1024)).toFixed(0);
-                memStr = `${usedGB}GB/${totalGB}GB`;
+                memStr = `${this.formatBytes(cap.memory_used_bytes)}/${this.formatBytes(cap.memory_bytes)}`;
             }
+
+            // Tasks running
+            const tasksStr = cap ? cap.tasks_running : '-';
 
             return `
                 <tr>
@@ -115,6 +82,7 @@ const app = {
                     <td><code>${a.endpoint}</code></td>
                     <td>${cpuStr}</td>
                     <td>${memStr}</td>
+                    <td>${tasksStr}</td>
                     <td>${this.formatTime(a.last_seen)}</td>
                 </tr>`;
         }).join('');
@@ -199,11 +167,13 @@ const app = {
             document.getElementById('totalTasks').textContent = status.total_tasks;
             document.getElementById('leaderAddr').textContent = leaderInfo.leader || 'unknown';
 
-            // Fetch capacity for new agents (async, don't block)
+            // Settling indicator
+            document.getElementById('statsContainer').classList.toggle('settling', !!status.settling);
+            document.getElementById('settleBadge').classList.toggle('active', !!status.settling);
+
+            // Fetch capacity from all agents (real-time usage, always refresh)
             for (const a of agents) {
-                if (!this.capacityCache[a.endpoint]) {
-                    this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
-                }
+                this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
             }
             this.renderAgentsTable();
 
@@ -273,7 +243,7 @@ const app = {
             }
         } catch (err) {
             // Show error but keep polling - cluster might come back
-            document.getElementById('error').innerHTML = `<div class="error">Waiting for cluster... (${err.message})</div>`;
+            document.getElementById('error').innerHTML = `<div class="warning">Waiting for cluster... (${err.message})</div>`;
 
             // Keep auto-refresh running
             if (!this.refreshInterval) {
