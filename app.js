@@ -6,11 +6,120 @@ const app = {
     agents: [],
     status: null,
     jobs: [],
-    capacityByEndpoint: {}, // endpoint -> {cpu_cores, memory_bytes, cpu_used_shares, memory_used_bytes, tasks_running}
+    capacityByEndpoint: {},
+    clusters: [],
+    activeCluster: 0,
 
     getEndpoint() {
-        const ep = document.getElementById('endpoint').value;
+        const c = this.clusters[this.activeCluster];
+        const ep = c ? c.endpoint : 'localhost:8080';
         return ep.startsWith('http') ? ep : 'http://' + ep;
+    },
+
+    loadClusters() {
+        try {
+            const stored = localStorage.getItem('easyrun-clusters');
+            if (stored) {
+                this.clusters = JSON.parse(stored);
+            }
+        } catch (e) { /* ignore */ }
+        if (!this.clusters.length) {
+            this.clusters = [];
+        }
+        const active = localStorage.getItem('easyrun-active-cluster');
+        this.activeCluster = active !== null ? Math.min(Number(active), this.clusters.length - 1) : 0;
+    },
+
+    saveClusters() {
+        localStorage.setItem('easyrun-clusters', JSON.stringify(this.clusters));
+        localStorage.setItem('easyrun-active-cluster', String(this.activeCluster));
+    },
+
+    renderClusterTabs() {
+        const container = document.getElementById('clusterTabs');
+        container.innerHTML = this.clusters.map((c, i) =>
+            `<button class="cluster-tab${i === this.activeCluster ? ' active' : ''}" onclick="app.switchCluster(${i})">` +
+                `${c.name}` +
+                `<span class="cluster-tab-remove" onclick="event.stopPropagation(); app.removeCluster(${i})">×</span>` +
+            `</button>`
+        ).join('');
+    },
+
+    switchCluster(index) {
+        if (index === this.activeCluster) return;
+        this.activeCluster = index;
+        this.saveClusters();
+        this.renderClusterTabs();
+        // Reset state for new cluster
+        this.agents = [];
+        this.status = null;
+        this.jobs = [];
+        this.capacityByEndpoint = {};
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+        this.refresh();
+    },
+
+    showAddCluster() {
+        document.getElementById('clusterForm').classList.remove('hidden');
+        document.getElementById('clusterName').focus();
+    },
+
+    hideAddCluster() {
+        document.getElementById('clusterForm').classList.add('hidden');
+        document.getElementById('clusterName').value = '';
+        document.getElementById('clusterEndpoint').value = '';
+    },
+
+    addClusterFromForm() {
+        const name = document.getElementById('clusterName').value.trim();
+        const endpoint = document.getElementById('clusterEndpoint').value.trim();
+        if (!name || !endpoint) return;
+        this.clusters.push({ name, endpoint });
+        this.activeCluster = this.clusters.length - 1;
+        this.saveClusters();
+        this.renderClusterTabs();
+        this.hideAddCluster();
+        // Reset + connect
+        this.agents = [];
+        this.status = null;
+        this.jobs = [];
+        this.capacityByEndpoint = {};
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+        this.refresh();
+    },
+
+    removeCluster(index) {
+        if (!confirm(`Remove cluster "${this.clusters[index].name}"?`)) return;
+        const wasActive = index === this.activeCluster;
+        this.clusters.splice(index, 1);
+        if (this.activeCluster >= this.clusters.length) {
+            this.activeCluster = Math.max(0, this.clusters.length - 1);
+        } else if (index < this.activeCluster) {
+            this.activeCluster--;
+        }
+        this.saveClusters();
+        this.renderClusterTabs();
+        if (wasActive) {
+            this.agents = [];
+            this.status = null;
+            this.jobs = [];
+            this.capacityByEndpoint = {};
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+                this.refreshInterval = null;
+            }
+            if (this.clusters.length) {
+                this.refresh();
+            } else {
+                this.showAddCluster();
+            }
+        }
     },
 
     async fetchAPI(path, options = {}) {
@@ -88,8 +197,8 @@ const app = {
         }).join('');
     },
 
-    async connect() {
-        await this.refresh();
+    connect() {
+        this.refresh();
     },
 
     showTab(name) {
@@ -230,7 +339,7 @@ const app = {
                     <td>${this.formatPorts(t.ports)}</td>
                     <td><span class="status ${t.state}">${t.state}</span></td>
                     <td>
-                        ${t.state === 'running' ? `<button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>` : '-'}
+                        ${t.state === 'running' || t.state === 'stopping' ? `<button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>` : '-'}
                     </td>
                 </tr>
             `).join('') : '<tr><td colspan="6" class="empty">No tasks</td></tr>';
@@ -329,15 +438,27 @@ const app = {
     }
 };
 
-// Event listeners
-document.getElementById('endpoint').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') app.connect();
+// Enter in cluster form submits
+document.getElementById('clusterEndpoint').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') app.addClusterFromForm();
+});
+document.getElementById('clusterName').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('clusterEndpoint').focus();
 });
 
 // Close modal on escape
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') app.closeLogs();
+    if (e.key === 'Escape') {
+        app.closeLogs();
+        app.hideAddCluster();
+    }
 });
 
 // Initial load
-app.refresh();
+app.loadClusters();
+app.renderClusterTabs();
+if (app.clusters.length) {
+    app.refresh();
+} else {
+    app.showAddCluster();
+}

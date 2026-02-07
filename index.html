@@ -7,11 +7,17 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="header">
-        <h1>EasyRun</h1>
-        <input type="text" id="endpoint" placeholder="agent:8080" value="localhost:8080">
-        <button onclick="app.connect()">Connect</button>
+    <div class="cluster-bar">
+        <div class="cluster-tabs" id="clusterTabs"></div>
+        <button class="cluster-add" id="clusterAddBtn" onclick="app.showAddCluster()">+</button>
         <span class="refresh" id="lastUpdate"></span>
+    </div>
+
+    <div id="clusterForm" class="cluster-form hidden">
+        <input type="text" id="clusterName" placeholder="Naam (bijv. prod)">
+        <input type="text" id="clusterEndpoint" placeholder="Adres (bijv. 10.0.0.1:8080)">
+        <button onclick="app.addClusterFromForm()">Add</button>
+        <button class="secondary" onclick="app.hideAddCluster()">Cancel</button>
     </div>
 
     <div class="stats" id="statsContainer">
