@@ -1,6 +1,7 @@
 const app = {
-    refreshInterval: null,
-    eventSource: null,
+    clusterSSE: null,
+    refreshPending: false,
+    logEventSource: null,
     currentTask: null,
     currentStream: 'stdout',
     agents: [],
@@ -55,11 +56,7 @@ const app = {
         this.status = null;
         this.jobs = [];
         this.capacityByEndpoint = {};
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-        }
-        this.refresh();
+        this.connectSSE();
     },
 
     showAddCluster() {
@@ -87,11 +84,7 @@ const app = {
         this.status = null;
         this.jobs = [];
         this.capacityByEndpoint = {};
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-        }
-        this.refresh();
+        this.connectSSE();
     },
 
     removeCluster(index) {
@@ -110,13 +103,10 @@ const app = {
             this.status = null;
             this.jobs = [];
             this.capacityByEndpoint = {};
-            if (this.refreshInterval) {
-                clearInterval(this.refreshInterval);
-                this.refreshInterval = null;
-            }
             if (this.clusters.length) {
-                this.refresh();
+                this.connectSSE();
             } else {
+                if (this.clusterSSE) { this.clusterSSE.close(); this.clusterSSE = null; }
                 this.showAddCluster();
             }
         }
@@ -200,7 +190,32 @@ const app = {
     },
 
     connect() {
-        this.refresh();
+        this.connectSSE();
+    },
+
+    connectSSE() {
+        if (this.clusterSSE) { this.clusterSSE.close(); this.clusterSSE = null; }
+        this.refresh(); // immediate first fetch
+
+        const url = this.getEndpoint() + '/v1/events';
+        this.clusterSSE = new EventSource(url);
+
+        this.clusterSSE.addEventListener('changed', () => {
+            // Debounce: max 1 refresh per 500ms
+            if (this.refreshPending) return;
+            this.refreshPending = true;
+            setTimeout(() => {
+                this.refreshPending = false;
+                this.refresh();
+            }, 500);
+        });
+
+        this.clusterSSE.onerror = () => {
+            this.clusterSSE.close();
+            this.clusterSSE = null;
+            // Retry SSE after 5s
+            setTimeout(() => this.connectSSE(), 5000);
+        };
     },
 
     showTab(name) {
@@ -349,19 +364,8 @@ const app = {
             `).join('') : '<tr><td colspan="6" class="empty">No tasks</td></tr>';
 
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-
-            // Auto-refresh (always on)
-            if (!this.refreshInterval) {
-                this.refreshInterval = setInterval(() => this.refresh(), 5000);
-            }
         } catch (err) {
-            // Show error but keep polling - cluster might come back
             document.getElementById('error').innerHTML = `<div class="warning">Waiting for cluster... (${err.message})</div>`;
-
-            // Keep auto-refresh running
-            if (!this.refreshInterval) {
-                this.refreshInterval = setInterval(() => this.refresh(), 5000);
-            }
         }
     },
 
@@ -387,8 +391,8 @@ const app = {
     },
 
     startLogStream() {
-        if (this.eventSource) {
-            this.eventSource.close();
+        if (this.logEventSource) {
+            this.logEventSource.close();
         }
 
         const { taskId, agentEndpoint } = this.currentTask;
@@ -396,30 +400,30 @@ const app = {
 
         document.getElementById('logOutput').textContent += `Connecting to ${url}...\n`;
 
-        this.eventSource = new EventSource(url);
+        this.logEventSource = new EventSource(url);
 
-        this.eventSource.onopen = () => {
+        this.logEventSource.onopen = () => {
             document.getElementById('logOutput').textContent += '[Connected]\n';
         };
 
-        this.eventSource.onmessage = (event) => {
+        this.logEventSource.onmessage = (event) => {
             const output = document.getElementById('logOutput');
             // SSE strips trailing newline, add it back
             output.textContent += event.data + '\n';
             output.scrollTop = output.scrollHeight;
         };
 
-        this.eventSource.onerror = () => {
+        this.logEventSource.onerror = () => {
             document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
-            this.eventSource.close();
-            this.eventSource = null;
+            this.logEventSource.close();
+            this.logEventSource = null;
         };
     },
 
     closeLogs() {
-        if (this.eventSource) {
-            this.eventSource.close();
-            this.eventSource = null;
+        if (this.logEventSource) {
+            this.logEventSource.close();
+            this.logEventSource = null;
         }
         document.getElementById('logModal').classList.add('hidden');
         this.currentTask = null;
@@ -494,7 +498,7 @@ document.addEventListener('keydown', (e) => {
 app.loadClusters();
 app.renderClusterTabs();
 if (app.clusters.length) {
-    app.refresh();
+    app.connect();
 } else {
     app.showAddCluster();
 }
