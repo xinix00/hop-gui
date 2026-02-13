@@ -275,6 +275,37 @@ th {
 
 tbody tr:hover { background: var(--bg-tertiary); }
 tbody tr:last-child td { border-bottom: none; }
+/* Styled tooltips via data-tooltip */
+[data-tooltip] {
+    position: relative;
+    cursor: help;
+    border-bottom: 1px dotted var(--text-muted);
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 6px);
+    background: var(--bg-tertiary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    white-space: pre;
+    line-height: 1.6;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+}
 
 code {
     background: var(--bg);

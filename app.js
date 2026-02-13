@@ -184,9 +184,11 @@ const app = {
             // Tasks running
             const tasksStr = cap ? cap.tasks_running : '-';
 
+            const attrTitle = cap ? this.formatAttributes(cap.attributes) : '';
+
             return `
                 <tr>
-                    <td><code>${a.id}</code></td>
+                    <td><code${attrTitle ? ` data-tooltip="${attrTitle}"` : ''}>${a.id}</code></td>
                     <td><span class="version">${a.version || 'unknown'}</span></td>
                     <td><code>${a.endpoint}</code></td>
                     <td>${cpuStr}</td>
@@ -305,10 +307,12 @@ const app = {
                 const ok = running >= expected;
                 const statusClass = ok ? 'status-ok' : 'status-degraded';
                 const statusText = ok ? 'OK' : 'DEGRADED';
+                const jobTip = this.formatJobTooltip(job);
+
                 return `
                 <tr>
-                    <td>${job.name}</td>
-                    <td><code>${this.truncate(job.command, 30)}</code></td>
+                    <td><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
+                    <td><code${job.command && job.command.length > 30 ? ` data-tooltip="${job.command}"` : ''}>${this.truncate(job.command, 30)}</code></td>
                     <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                     <td class="${statusClass}">${statusText}</td>
                     <td><button class="danger small" onclick="app.deleteJob('${job.name}')">Delete</button></td>
@@ -430,6 +434,38 @@ const app = {
     formatPorts(ports) {
         if (!ports || Object.keys(ports).length === 0) return '-';
         return Object.entries(ports).map(([k, v]) => `${k}:${v}`).join(', ');
+    },
+
+    formatAttributes(attrs) {
+        if (!attrs || Object.keys(attrs).length === 0) return '';
+        return Object.keys(attrs).sort().map(k => `${k}=${attrs[k]}`).join('\n');
+    },
+
+    formatAffinity(affinity) {
+        if (!affinity || Object.keys(affinity).length === 0) return '';
+        return Object.keys(affinity).sort().map(k => `${k}=${affinity[k]}`).join('\n');
+    },
+
+    formatJobTooltip(job) {
+        const parts = [];
+        if (job.affinity && Object.keys(job.affinity).length > 0) {
+            parts.push('Affinity: ' + Object.keys(job.affinity).sort().map(k => `${k}=${job.affinity[k]}`).join(', '));
+        }
+        if (job.artifacts && job.artifacts.length > 0) {
+            job.artifacts.forEach(a => {
+                const match = a.match && Object.keys(a.match).length > 0
+                    ? Object.keys(a.match).sort().map(k => `${k}=${a.match[k]}`).join(',') + ' → '
+                    : '';
+                parts.push('Artifact: ' + match + a.url);
+            });
+        }
+        if (job.image) {
+            parts.push('Image: ' + job.image);
+        }
+        if (job.tags && Object.keys(job.tags).length > 0) {
+            parts.push('Tags: ' + Object.keys(job.tags).sort().map(k => `${k}=${job.tags[k]}`).join(', '));
+        }
+        return parts.join('\n');
     },
 
     truncate(str, len) {
