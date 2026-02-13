@@ -289,8 +289,8 @@ const app = {
 
             // Stats
             document.getElementById('agentCount').textContent = status.agents;
-            document.getElementById('runningTasks').textContent = status.running_tasks;
-            document.getElementById('totalTasks').textContent = status.total_tasks;
+            document.getElementById('totalPlaced').textContent = status.total_placed;
+            document.getElementById('totalJobs').textContent = status.jobs;
             document.getElementById('leaderAddr').textContent = leaderInfo.leader || 'unknown';
 
             // Settling indicator
@@ -303,22 +303,15 @@ const app = {
             }
             this.renderAgentsTable();
 
-            // Count running tasks per job
-            const runningPerJob = {};
-            for (const agentTasks of Object.values(status.tasks_by_agent || {})) {
-                for (const t of agentTasks) {
-                    if (t.state === 'running') {
-                        runningPerJob[t.job_name] = (runningPerJob[t.job_name] || 0) + 1;
-                    }
-                }
-            }
+            // Placed counts per job from status (already aggregated by leader)
+            const placedPerJob = status.placed || {};
 
             // Jobs table (sorted by name)
             const jobsBody = document.querySelector('#jobsTable tbody');
             const sortedJobs = jobs.sort((a, b) => a.name.localeCompare(b.name));
             jobsBody.innerHTML = sortedJobs.length ? sortedJobs.map(job => {
                 const expected = job.count === -1 ? status.agents : (job.count || 1);
-                const running = runningPerJob[job.name] || 0;
+                const running = placedPerJob[job.name] || 0;
                 const ok = running >= expected;
                 const statusClass = ok ? 'status-ok' : 'status-degraded';
                 const statusText = ok ? 'OK' : 'DEGRADED';
@@ -334,13 +327,20 @@ const app = {
                 </tr>`;
             }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
 
-            // Tasks table (flattened from all agents, sorted by job_name)
+            // Tasks table: fetch per-job status in parallel
             const tasksBody = document.querySelector('#tasksTable tbody');
             const tasks = [];
-            for (const [agentId, agentTasks] of Object.entries(status.tasks_by_agent || {})) {
-                const agent = agents.find(a => a.id === agentId);
-                for (const t of agentTasks) {
-                    tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
+            const jobStatuses = await Promise.all(
+                jobs.map(job => this.fetchAPI(`/v1/jobs/${job.name}/status`).catch(() => null))
+            );
+            for (let i = 0; i < jobs.length; i++) {
+                const js = jobStatuses[i];
+                if (!js || !js.tasks_by_agent) continue;
+                for (const [agentId, agentTasks] of Object.entries(js.tasks_by_agent)) {
+                    const agent = agents.find(a => a.id === agentId);
+                    for (const t of agentTasks) {
+                        tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
+                    }
                 }
             }
 
