@@ -225,7 +225,7 @@ const app = {
                         const lines = buf.split('\n');
                         buf = lines.pop();
                         for (const line of lines) {
-                            if (line.startsWith('event: changed') || line.startsWith('data:')) {
+                            if (line.startsWith('event: ') || line.startsWith('data:')) {
                                 clearTimeout(this.refreshTimer);
                                 this.refreshTimer = setTimeout(() => this.refresh(), 500);
                             }
