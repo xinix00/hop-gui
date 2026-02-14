@@ -46,7 +46,6 @@
     <div class="tabs">
         <button class="tab active" onclick="app.showTab('agents')">Agents</button>
         <button class="tab" onclick="app.showTab('jobs')">Jobs</button>
-        <button class="tab" onclick="app.showTab('tasks')">Tasks</button>
     </div>
 
     <!-- Agents Tab -->
@@ -62,33 +61,43 @@
     <!-- Jobs Tab -->
     <div id="tab-jobs" class="tab-content">
         <div class="panel">
-            <div class="panel-header">
-                <h2>Jobs</h2>
-                <button onclick="app.toggleNewJob()">+ New Job</button>
-            </div>
-
-            <div id="newJobForm" class="form hidden">
-                <textarea id="jobJson" rows="6" placeholder='{"name": "myapp", "command": "./myapp", "count": 1}'></textarea>
-                <div class="form-row">
-                    <button onclick="app.startJob()">Start Job</button>
-                    <button class="secondary" onclick="app.toggleNewJob()">Cancel</button>
+            <!-- Jobs list view -->
+            <div id="jobsListView">
+                <div class="panel-header">
+                    <h2>Jobs</h2>
+                    <button onclick="app.toggleNewJob()">+ New Job</button>
                 </div>
+
+                <div id="newJobForm" class="form hidden">
+                    <textarea id="jobJson" rows="6" placeholder='{"name": "myapp", "command": "./myapp", "count": 1}'></textarea>
+                    <div class="form-row">
+                        <button onclick="app.startJob()">Start Job</button>
+                        <button class="secondary" onclick="app.toggleNewJob()">Cancel</button>
+                    </div>
+                </div>
+
+                <table id="jobsTable">
+                    <thead><tr><th>Name</th><th>Command</th><th>Running</th><th>Status</th><th></th></tr></thead>
+                    <tbody></tbody>
+                </table>
             </div>
 
-            <table id="jobsTable">
-                <thead><tr><th>Name</th><th>Command</th><th>Running</th><th>Status</th><th></th></tr></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Tasks Tab -->
-    <div id="tab-tasks" class="tab-content">
-        <div class="panel">
-            <table id="tasksTable">
-                <thead><tr><th>Task</th><th>Job</th><th>Agent</th><th>Ports</th><th>State</th><th></th></tr></thead>
-                <tbody></tbody>
-            </table>
+            <!-- Job detail view (hidden by default) -->
+            <div id="jobDetailView" class="hidden">
+                <div class="panel-header">
+                    <div class="job-detail-title">
+                        <button class="secondary small" onclick="app.closeJobDetail()">&larr; Jobs</button>
+                        <h2 id="jobDetailName"></h2>
+                        <span id="jobDetailStatus" class="status"></span>
+                    </div>
+                    <button class="danger small" id="jobDetailDelete">Delete</button>
+                </div>
+                <div id="jobDetailInfo" class="job-detail-info"></div>
+                <table id="jobTasksTable">
+                    <thead><tr><th>Task</th><th>Agent</th><th>Ports</th><th>Restarts</th><th>State</th><th></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
