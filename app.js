@@ -1,7 +1,7 @@
 const app = {
     clusterSSE: null,
     refreshPending: false,
-    logEventSource: null,
+    logAbort: null,
     currentTask: null,
     currentStream: 'stdout',
     agents: [],
@@ -15,6 +15,18 @@ const app = {
         const c = this.clusters[this.activeCluster];
         const ep = c ? c.endpoint : 'localhost:8080';
         return ep.startsWith('http') ? ep : 'http://' + ep;
+    },
+
+    getApiKey() {
+        const c = this.clusters[this.activeCluster];
+        return c ? (c.apiKey || '') : '';
+    },
+
+    authHeaders() {
+        const h = {};
+        const key = this.getApiKey();
+        if (key) h['X-API-Key'] = key;
+        return h;
     },
 
     loadClusters() {
@@ -68,13 +80,17 @@ const app = {
         document.getElementById('clusterForm').classList.add('hidden');
         document.getElementById('clusterName').value = '';
         document.getElementById('clusterEndpoint').value = '';
+        document.getElementById('clusterApiKey').value = '';
     },
 
     addClusterFromForm() {
         const name = document.getElementById('clusterName').value.trim();
         const endpoint = document.getElementById('clusterEndpoint').value.trim();
+        const apiKey = document.getElementById('clusterApiKey').value.trim();
         if (!name || !endpoint) return;
-        this.clusters.push({ name, endpoint });
+        const cluster = { name, endpoint };
+        if (apiKey) cluster.apiKey = apiKey;
+        this.clusters.push(cluster);
         this.activeCluster = this.clusters.length - 1;
         this.saveClusters();
         this.renderClusterTabs();
@@ -106,14 +122,15 @@ const app = {
             if (this.clusters.length) {
                 this.connectSSE();
             } else {
-                if (this.clusterSSE) { this.clusterSSE.close(); this.clusterSSE = null; }
+                this.disconnectSSE();
                 this.showAddCluster();
             }
         }
     },
 
     async fetchAPI(path, options = {}) {
-        const resp = await fetch(this.getEndpoint() + path, options);
+        const headers = { ...this.authHeaders(), ...(options.headers || {}) };
+        const resp = await fetch(this.getEndpoint() + path, { ...options, headers });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         if (resp.status === 204) return null;
         return resp.json();
@@ -121,7 +138,7 @@ const app = {
 
     async fetchAgentCapacity(endpoint) {
         try {
-            const resp = await fetch(`${endpoint}/capacity`);
+            const resp = await fetch(`${endpoint}/capacity`, { headers: this.authHeaders() });
             if (resp.ok) {
                 const data = await resp.json();
                 this.capacityByEndpoint[endpoint] = data;
@@ -193,29 +210,62 @@ const app = {
         this.connectSSE();
     },
 
+    disconnectSSE() {
+        if (this.clusterSSE) {
+            this.clusterSSE.abort();
+            this.clusterSSE = null;
+        }
+    },
+
+    // SSE via fetch (supports custom headers, unlike EventSource)
     connectSSE() {
-        if (this.clusterSSE) { this.clusterSSE.close(); this.clusterSSE = null; }
+        this.disconnectSSE();
         this.refresh(); // immediate first fetch
 
+        const abort = new AbortController();
+        this.clusterSSE = abort;
+
         const url = this.getEndpoint() + '/v1/events';
-        this.clusterSSE = new EventSource(url);
+        fetch(url, { headers: this.authHeaders(), signal: abort.signal })
+            .then(resp => {
+                if (!resp.ok || !resp.body) throw new Error(`SSE HTTP ${resp.status}`);
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
 
-        this.clusterSSE.addEventListener('changed', () => {
-            // Debounce: max 1 refresh per 500ms
-            if (this.refreshPending) return;
-            this.refreshPending = true;
-            setTimeout(() => {
-                this.refreshPending = false;
-                this.refresh();
-            }, 500);
-        });
-
-        this.clusterSSE.onerror = () => {
-            this.clusterSSE.close();
-            this.clusterSSE = null;
-            // Retry SSE after 5s
-            setTimeout(() => this.connectSSE(), 5000);
-        };
+                const read = () => {
+                    reader.read().then(({ done, value }) => {
+                        if (done) throw new Error('SSE stream ended');
+                        buf += decoder.decode(value, { stream: true });
+                        // Process complete lines
+                        const lines = buf.split('\n');
+                        buf = lines.pop(); // keep incomplete line
+                        for (const line of lines) {
+                            if (line.startsWith('event: changed') || line.startsWith('data:')) {
+                                if (!this.refreshPending) {
+                                    this.refreshPending = true;
+                                    setTimeout(() => {
+                                        this.refreshPending = false;
+                                        this.refresh();
+                                    }, 500);
+                                }
+                            }
+                        }
+                        read();
+                    }).catch(() => {
+                        // Stream closed or aborted — retry if not manually disconnected
+                        if (!abort.signal.aborted) {
+                            setTimeout(() => this.connectSSE(), 5000);
+                        }
+                    });
+                };
+                read();
+            })
+            .catch(() => {
+                if (!abort.signal.aborted) {
+                    setTimeout(() => this.connectSSE(), 5000);
+                }
+            });
     },
 
     showTab(name) {
@@ -391,39 +441,63 @@ const app = {
     },
 
     startLogStream() {
-        if (this.logEventSource) {
-            this.logEventSource.close();
+        if (this.logAbort) {
+            this.logAbort.abort();
         }
 
         const { taskId, agentEndpoint } = this.currentTask;
         const url = `${agentEndpoint}/logs/${taskId}/${this.currentStream}`;
+        const abort = new AbortController();
+        this.logAbort = abort;
 
         document.getElementById('logOutput').textContent += `Connecting to ${url}...\n`;
 
-        this.logEventSource = new EventSource(url);
+        fetch(url, { headers: this.authHeaders(), signal: abort.signal })
+            .then(resp => {
+                if (!resp.ok || !resp.body) {
+                    document.getElementById('logOutput').textContent += `[Error: HTTP ${resp.status}]\n`;
+                    return;
+                }
+                document.getElementById('logOutput').textContent += '[Connected]\n';
 
-        this.logEventSource.onopen = () => {
-            document.getElementById('logOutput').textContent += '[Connected]\n';
-        };
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
 
-        this.logEventSource.onmessage = (event) => {
-            const output = document.getElementById('logOutput');
-            // SSE strips trailing newline, add it back
-            output.textContent += event.data + '\n';
-            output.scrollTop = output.scrollHeight;
-        };
-
-        this.logEventSource.onerror = () => {
-            document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
-            this.logEventSource.close();
-            this.logEventSource = null;
-        };
+                const read = () => {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
+                            return;
+                        }
+                        buf += decoder.decode(value, { stream: true });
+                        const lines = buf.split('\n');
+                        buf = lines.pop();
+                        const output = document.getElementById('logOutput');
+                        for (const line of lines) {
+                            if (line.startsWith('data:')) {
+                                output.textContent += line.slice(5) + '\n';
+                            }
+                        }
+                        output.scrollTop = output.scrollHeight;
+                        read();
+                    }).catch(() => {
+                        document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
+                    });
+                };
+                read();
+            })
+            .catch(err => {
+                if (!abort.signal.aborted) {
+                    document.getElementById('logOutput').textContent += `\n[Error: ${err.message}]\n`;
+                }
+            });
     },
 
     closeLogs() {
-        if (this.logEventSource) {
-            this.logEventSource.close();
-            this.logEventSource = null;
+        if (this.logAbort) {
+            this.logAbort.abort();
+            this.logAbort = null;
         }
         document.getElementById('logModal').classList.add('hidden');
         this.currentTask = null;
@@ -479,8 +553,11 @@ const app = {
 };
 
 // Enter in cluster form submits
-document.getElementById('clusterEndpoint').addEventListener('keypress', (e) => {
+document.getElementById('clusterApiKey').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') app.addClusterFromForm();
+});
+document.getElementById('clusterEndpoint').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('clusterApiKey').focus();
 });
 document.getElementById('clusterName').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('clusterEndpoint').focus();
