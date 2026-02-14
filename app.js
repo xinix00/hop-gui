@@ -1,6 +1,6 @@
 const app = {
     clusterSSE: null,
-    refreshPending: false,
+    refreshTimer: null,
     logAbort: null,
     currentTask: null,
     currentStream: 'stdout',
@@ -226,13 +226,8 @@ const app = {
                         buf = lines.pop();
                         for (const line of lines) {
                             if (line.startsWith('event: changed') || line.startsWith('data:')) {
-                                if (!this.refreshPending) {
-                                    this.refreshPending = true;
-                                    setTimeout(() => {
-                                        this.refreshPending = false;
-                                        this.refresh();
-                                    }, 500);
-                                }
+                                clearTimeout(this.refreshTimer);
+                                this.refreshTimer = setTimeout(() => this.refresh(), 500);
                             }
                         }
                         read();
