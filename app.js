@@ -5,6 +5,7 @@ const app = {
     currentTask: null,
     currentStream: 'stdout',
     activeJobName: null, // currently viewed job detail
+    _skipPush: false, // true when navigating via popstate (don't push again)
     agents: [],
     status: null,
     jobs: [],
@@ -163,7 +164,7 @@ const app = {
     renderAgentsTable() {
         const agentsBody = document.querySelector('#agentsTable tbody');
         if (!this.agents.length) {
-            agentsBody.innerHTML = '<tr><td colspan="7" class="empty">No agents</td></tr>';
+            agentsBody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>';
             return;
         }
         const sorted = [...this.agents].sort((a, b) => a.id.localeCompare(b.id));
@@ -188,7 +189,6 @@ const app = {
                     <td>${cpuStr}</td>
                     <td>${memStr}</td>
                     <td>${tasksStr}</td>
-                    <td>${this.formatTime(a.last_seen)}</td>
                 </tr>`;
         }).join('');
     },
@@ -254,7 +254,13 @@ const app = {
 
         // When switching to jobs tab, close detail view
         if (name === 'jobs') {
-            this.closeJobDetail();
+            this.activeJobName = null;
+            document.getElementById('jobDetailView').classList.add('hidden');
+            document.getElementById('jobsListView').classList.remove('hidden');
+        }
+
+        if (!this._skipPush) {
+            history.pushState(null, '', '#' + name);
         }
     },
 
@@ -367,10 +373,20 @@ const app = {
     async openJobDetail(jobName) {
         this.activeJobName = jobName;
 
+        // Ensure we're on the jobs tab
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.tab[onclick*="jobs"]').classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.getElementById('tab-jobs').classList.add('active');
+
         document.getElementById('jobsListView').classList.add('hidden');
         document.getElementById('jobDetailView').classList.remove('hidden');
         document.getElementById('jobDetailName').textContent = jobName;
         document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobName);
+
+        if (!this._skipPush) {
+            history.pushState(null, '', '#jobs/' + encodeURIComponent(jobName));
+        }
 
         // Show loading state
         document.querySelector('#jobTasksTable tbody').innerHTML =
@@ -448,6 +464,9 @@ const app = {
         this.activeJobName = null;
         document.getElementById('jobDetailView').classList.add('hidden');
         document.getElementById('jobsListView').classList.remove('hidden');
+        if (!this._skipPush) {
+            history.pushState(null, '', '#jobs');
+        }
     },
 
     openLogs(taskId, agentEndpoint) {
@@ -523,9 +542,19 @@ const app = {
         this.currentTask = null;
     },
 
-    formatTime(isoString) {
-        if (!isoString) return '-';
-        return new Date(isoString).toLocaleTimeString();
+    navigateToHash() {
+        const hash = location.hash || '#agents';
+        this._skipPush = true;
+        this.closeLogs();
+        if (hash.startsWith('#jobs/')) {
+            const jobName = decodeURIComponent(hash.slice(6));
+            this.openJobDetail(jobName);
+        } else if (hash === '#jobs') {
+            this.showTab('jobs');
+        } else {
+            this.showTab('agents');
+        }
+        this._skipPush = false;
     },
 
     formatPorts(ports) {
@@ -582,11 +611,20 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Browser history
+window.addEventListener('popstate', () => app.navigateToHash());
+
 // Initial load
 app.loadClusters();
 app.renderClusterTabs();
 if (app.clusters.length) {
     app.connect();
+    // Restore view from URL hash (bookmarks, refresh)
+    if (location.hash) {
+        app.navigateToHash();
+    } else {
+        history.replaceState(null, '', '#agents');
+    }
 } else {
     app.showAddCluster();
 }
