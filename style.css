@@ -28,11 +28,13 @@ h2 { color: var(--text-muted); font-size: 12px; text-transform: uppercase; lette
 /* Cluster bar */
 .cluster-bar {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 24px;
+    align-items: flex-end;
+    gap: 0;
+    margin: -20px -20px 24px -20px;
+    background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
-    padding-bottom: 0;
+    border-radius: 0;
+    padding: 6px 20px 0 20px;
 }
 
 .cluster-tabs { display: flex; gap: 4px; }
@@ -52,10 +54,10 @@ h2 { color: var(--text-muted); font-size: 12px; text-transform: uppercase; lette
 
 .cluster-tab:hover { color: var(--text); background: var(--bg-secondary); }
 .cluster-tab.active {
-    background: var(--bg-secondary);
+    background: var(--bg);
     color: var(--accent);
     border-color: var(--border);
-    border-bottom-color: var(--bg-secondary);
+    border-bottom-color: var(--bg);
     font-weight: 600;
 }
 
@@ -75,7 +77,8 @@ h2 { color: var(--text-muted); font-size: 12px; text-transform: uppercase; lette
     border-radius: 6px;
     font-size: 16px;
     font-weight: 400;
-    margin-bottom: -1px;
+    margin-bottom: 6px;
+    margin-left: 4px;
 }
 .cluster-add:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
 
@@ -361,6 +364,8 @@ code {
     color: var(--text-muted);
     font-size: 12px;
     margin-left: auto;
+    margin-bottom: 6px;
+    margin-right: 6px;
 }
 
 .empty {
