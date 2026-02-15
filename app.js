@@ -1,6 +1,7 @@
 const app = {
     clusterSSE: null,
     refreshTimer: null,
+    detailTimer: null,
     logAbort: null,
     currentTask: null,
     currentStream: 'stdout',
@@ -393,6 +394,12 @@ const app = {
             '<tr><td colspan="8" class="empty">Loading...</td></tr>';
 
         await this.refreshJobDetail(jobName);
+
+        // Poll task resources every 5s (CPU/Mem don't trigger SSE events)
+        clearInterval(this.detailTimer);
+        this.detailTimer = setInterval(() => {
+            if (this.activeJobName) this.refreshJobDetail(this.activeJobName);
+        }, 5000);
     },
 
     async refreshJobDetail(jobName) {
@@ -484,6 +491,7 @@ const app = {
     },
 
     closeJobDetail() {
+        clearInterval(this.detailTimer);
         this.activeJobName = null;
         document.getElementById('jobDetailView').classList.add('hidden');
         document.getElementById('jobsListView').classList.remove('hidden');
