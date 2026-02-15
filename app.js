@@ -581,7 +581,7 @@ const app = {
     },
 
     formatPercent(val) {
-        if (val === undefined || val === null || val === 0) return '-';
+        if (val === undefined || val === null) return '-';
         return val.toFixed(1) + '%';
     },
 
