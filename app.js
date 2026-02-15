@@ -390,7 +390,7 @@ const app = {
 
         // Show loading state
         document.querySelector('#jobTasksTable tbody').innerHTML =
-            '<tr><td colspan="6" class="empty">Loading...</td></tr>';
+            '<tr><td colspan="8" class="empty">Loading...</td></tr>';
 
         await this.refreshJobDetail(jobName);
     },
@@ -442,21 +442,44 @@ const app = {
             tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || a.id.localeCompare(b.id));
 
             const tbody = document.querySelector('#jobTasksTable tbody');
-            tbody.innerHTML = tasks.length ? tasks.map(t => `
-                <tr>
-                    <td><code>${t.id.slice(0, 8)}</code></td>
-                    <td><code>${t.agentId}</code></td>
-                    <td>${this.formatPorts(t.ports)}</td>
-                    <td>${t.restart_count || 0}</td>
-                    <td><span class="status ${t.state}">${t.state}</span></td>
-                    <td>
-                        ${t.state === 'running' || t.state === 'stopping' ? `<button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>` : '-'}
-                    </td>
-                </tr>
-            `).join('') : '<tr><td colspan="6" class="empty">No tasks</td></tr>';
+            // If rows already exist, only update CPU/Mem cells in-place
+            const existingRows = tbody.querySelectorAll('tr[data-task-id]');
+            const existingMap = {};
+            existingRows.forEach(row => { existingMap[row.dataset.taskId] = row; });
+
+            if (tasks.length && Object.keys(existingMap).length > 0 &&
+                tasks.length === Object.keys(existingMap).length &&
+                tasks.every(t => existingMap[t.id])) {
+                // In-place update: only refresh CPU, Mem, restarts, and state
+                for (const t of tasks) {
+                    const row = existingMap[t.id];
+                    row.querySelector('.task-cpu').textContent = this.formatPercent(t.cpu_percent);
+                    row.querySelector('.task-mem').textContent = this.formatPercent(t.mem_percent);
+                    row.querySelector('.task-restarts').textContent = t.restart_count || 0;
+                    const stateEl = row.querySelector('.task-state');
+                    stateEl.className = 'status task-state ' + t.state;
+                    stateEl.textContent = t.state;
+                }
+            } else {
+                // Full render (new tasks, different count, etc.)
+                tbody.innerHTML = tasks.length ? tasks.map(t => `
+                    <tr data-task-id="${t.id}">
+                        <td><code>${t.id.slice(0, 8)}</code></td>
+                        <td><code>${t.agentId}</code></td>
+                        <td>${this.formatPorts(t.ports)}</td>
+                        <td class="task-cpu">${this.formatPercent(t.cpu_percent)}</td>
+                        <td class="task-mem">${this.formatPercent(t.mem_percent)}</td>
+                        <td class="task-restarts">${t.restart_count || 0}</td>
+                        <td><span class="status task-state ${t.state}">${t.state}</span></td>
+                        <td>
+                            ${t.state === 'running' || t.state === 'stopping' ? `<button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>` : '-'}
+                        </td>
+                    </tr>
+                `).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
+            }
         } catch (err) {
             document.querySelector('#jobTasksTable tbody').innerHTML =
-                `<tr><td colspan="6" class="empty">Failed to load tasks: ${err.message}</td></tr>`;
+                `<tr><td colspan="8" class="empty">Failed to load tasks: ${err.message}</td></tr>`;
         }
     },
 
@@ -555,6 +578,11 @@ const app = {
             this.showTab('agents');
         }
         this._skipPush = false;
+    },
+
+    formatPercent(val) {
+        if (val === undefined || val === null || val === 0) return '-';
+        return val.toFixed(1) + '%';
     },
 
     formatPorts(ports) {
