@@ -347,27 +347,112 @@ const app = {
         }
     },
 
+    // Sort jobs by effective priority: 0 (unset) sorts last, others ascending.
+    sortedByPriority(jobs) {
+        return [...jobs].sort((a, b) => {
+            const pa = a.priority || Infinity;
+            const pb = b.priority || Infinity;
+            return pa !== pb ? pa - pb : a.name.localeCompare(b.name);
+        });
+    },
+
     renderJobsTable(jobs, placedPerJob, agentCount) {
         const jobsBody = document.querySelector('#jobsTable tbody');
-        const sortedJobs = [...jobs].sort((a, b) => a.name.localeCompare(b.name));
+        const sortedJobs = this.sortedByPriority(jobs);
 
-        jobsBody.innerHTML = sortedJobs.length ? sortedJobs.map(job => {
+        if (!sortedJobs.length) {
+            jobsBody.innerHTML = '<tr><td colspan="7" class="empty">No jobs</td></tr>';
+            return;
+        }
+
+        jobsBody.innerHTML = sortedJobs.map((job, idx) => {
             const expected = job.count === -1 ? agentCount : (job.count || 1);
             const running = placedPerJob[job.name] || 0;
             const ok = running >= expected;
             const statusClass = ok ? 'status-ok' : 'status-degraded';
             const statusText = ok ? 'OK' : 'DEGRADED';
             const jobTip = this.formatJobTooltip(job);
+            const prioLabel = job.priority ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
 
             return `
-            <tr class="clickable" onclick="app.openJobDetail('${job.name}')">
+            <tr class="clickable" draggable="true" data-job-name="${job.name}" data-drag-idx="${idx}"
+                onclick="app.openJobDetail('${job.name}')"
+                ondragstart="app.onDragStart(event, ${idx})"
+                ondragover="app.onDragOver(event)"
+                ondragleave="app.onDragLeave(event)"
+                ondrop="app.onDrop(event, ${idx})"
+                ondragend="app.onDragEnd(event)">
+                <td onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
+                <td>${prioLabel}</td>
                 <td><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
                 <td><code${job.command && job.command.length > 30 ? ` data-tooltip="${job.command}"` : ''}>${this.truncate(job.command || job.image || '', 30)}</code></td>
                 <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                 <td class="${statusClass}">${statusText}</td>
                 <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
             </tr>`;
-        }).join('') : '<tr><td colspan="5" class="empty">No jobs</td></tr>';
+        }).join('');
+    },
+
+    _dragSrcIdx: null,
+
+    onDragStart(event, idx) {
+        this._dragSrcIdx = idx;
+        event.currentTarget.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+    },
+
+    onDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        event.currentTarget.classList.add('drag-over');
+    },
+
+    onDragLeave(event) {
+        event.currentTarget.classList.remove('drag-over');
+    },
+
+    onDragEnd(event) {
+        event.currentTarget.classList.remove('dragging');
+        document.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
+        this._dragSrcIdx = null;
+    },
+
+    async onDrop(event, toIdx) {
+        event.preventDefault();
+        event.currentTarget.classList.remove('drag-over');
+        const fromIdx = this._dragSrcIdx;
+        if (fromIdx === null || fromIdx === toIdx) return;
+
+        // Reorder the sorted list
+        const sorted = this.sortedByPriority(this.jobs);
+        const [moved] = sorted.splice(fromIdx, 1);
+        sorted.splice(toIdx, 0, moved);
+
+        // Assign dense priorities 0..N-1 based on new position (0 = most important)
+        const patches = [];
+        sorted.forEach((job, i) => {
+            const newPrio = i;
+            if (job.priority !== newPrio) {
+                patches.push(this.fetchAPI(`/v1/jobs/${job.name}/priority`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ priority: newPrio }),
+                }));
+                // Update local state immediately for responsive UI
+                job.priority = newPrio;
+            }
+        });
+
+        // Optimistic re-render, then sync
+        const placedPerJob = (this.status && this.status.placed) || {};
+        this.renderJobsTable(this.jobs, placedPerJob, this.agents.length);
+
+        try {
+            await Promise.all(patches);
+        } catch (err) {
+            console.error('Priority update failed:', err);
+            this.refresh(); // Fall back to server state on error
+        }
     },
 
     // Open job detail view

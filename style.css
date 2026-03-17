@@ -278,6 +278,11 @@ th {
 
 tbody tr:hover { background: var(--bg-tertiary); }
 tbody tr:last-child td { border-bottom: none; }
+.drag-handle { cursor: grab; color: var(--text-muted); padding: 0 4px; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+tr.dragging { opacity: 0.4; }
+tr.drag-over td { border-top: 2px solid var(--accent); }
+.prio-badge { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* Styled tooltips via data-tooltip */
 [data-tooltip] {
     position: relative;
