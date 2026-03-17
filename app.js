@@ -5,7 +5,7 @@ const app = {
     logAbort: null,
     currentTask: null,
     currentStream: 'stdout',
-    activeJobName: null, // currently viewed job detail
+    activeJobId: null, // currently viewed job detail
     _skipPush: false, // true when navigating via popstate (don't push again)
     agents: [],
     status: null,
@@ -70,7 +70,7 @@ const app = {
         this.status = null;
         this.jobs = [];
         this.capacityByEndpoint = {};
-        this.activeJobName = null;
+        this.activeJobId = null;
         this.connectSSE();
     },
 
@@ -278,7 +278,7 @@ const app = {
 
         // When switching to jobs tab, close detail view
         if (name === 'jobs') {
-            this.activeJobName = null;
+            this.activeJobId = null;
             document.getElementById('jobDetailView').classList.add('hidden');
             document.getElementById('jobsListView').classList.remove('hidden');
         }
@@ -314,11 +314,11 @@ const app = {
         }
     },
 
-    async deleteJob(jobName) {
+    async deleteJob(jobId, jobName) {
         if (!confirm(`Delete job ${jobName}?`)) return;
         try {
-            await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
-            if (this.activeJobName === jobName) this.closeJobDetail();
+            await this.fetchAPI(`/v1/jobs/${jobId}`, { method: 'DELETE' });
+            if (this.activeJobId === jobId) this.closeJobDetail();
             this.refresh();
         } catch (err) {
             alert('Failed to delete job: ' + err.message);
@@ -360,8 +360,8 @@ const app = {
             this.renderJobsTable(jobs, placedPerJob, status.agents);
 
             // If job detail is open, refresh it too
-            if (this.activeJobName) {
-                this.refreshJobDetail(this.activeJobName);
+            if (this.activeJobId) {
+                this.refreshJobDetail(this.activeJobId);
             }
 
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
@@ -398,8 +398,8 @@ const app = {
             const prioLabel = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
 
             return `
-            <tr class="clickable" draggable="true" data-job-name="${job.name}" data-drag-idx="${idx}"
-                onclick="app.openJobDetail('${job.name}')"
+            <tr class="clickable" draggable="true" data-job-id="${job.id}" data-drag-idx="${idx}"
+                onclick="app.openJobDetail('${job.id}')"
                 ondragstart="app.onDragStart(event, ${idx})"
                 ondragover="app.onDragOver(event)"
                 ondragleave="app.onDragLeave(event)"
@@ -411,7 +411,7 @@ const app = {
                 <td><code${job.command && job.command.length > 30 ? ` data-tooltip="${job.command}"` : ''}>${this.truncate(job.command || job.image || '', 30)}</code></td>
                 <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                 <td class="${statusClass}">${statusText}</td>
-                <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
+                <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.id}', '${job.name}')">Delete</button></td>
             </tr>`;
         }).join('');
     },
@@ -461,7 +461,7 @@ const app = {
 
         // One PATCH — server inserts the job at toIdx and renumbers everything
         try {
-            await this.fetchAPI(`/v1/jobs/${moved.name}/priority`, {
+            await this.fetchAPI(`/v1/jobs/${moved.id}/priority`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ priority: toIdx }),
@@ -473,8 +473,8 @@ const app = {
     },
 
     // Open job detail view
-    async openJobDetail(jobName) {
-        this.activeJobName = jobName;
+    async openJobDetail(jobId) {
+        this.activeJobId = jobId;
 
         // Ensure we're on the jobs tab
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -484,28 +484,30 @@ const app = {
 
         document.getElementById('jobsListView').classList.add('hidden');
         document.getElementById('jobDetailView').classList.remove('hidden');
-        document.getElementById('jobDetailName').textContent = jobName;
-        document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobName);
+
+        const job = this.jobs.find(j => j.id === jobId);
+        document.getElementById('jobDetailName').textContent = job ? job.name : jobId;
+        document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobId, job ? job.name : jobId);
 
         if (!this._skipPush) {
-            history.pushState(null, '', '#jobs/' + encodeURIComponent(jobName));
+            history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
         }
 
         // Show loading state
         document.querySelector('#jobTasksTable tbody').innerHTML =
             '<tr><td colspan="8" class="empty">Loading...</td></tr>';
 
-        await this.refreshJobDetail(jobName);
+        await this.refreshJobDetail(jobId);
 
         // Poll task resources every 5s (CPU/Mem don't trigger SSE events)
         clearInterval(this.detailTimer);
         this.detailTimer = setInterval(() => {
-            if (this.activeJobName) this.refreshJobDetail(this.activeJobName);
+            if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
         }, 5000);
     },
 
-    async refreshJobDetail(jobName) {
-        const job = this.jobs.find(j => j.name === jobName);
+    async refreshJobDetail(jobId) {
+        const job = this.jobs.find(j => j.id === jobId);
         if (!job) {
             this.closeJobDetail();
             return;
@@ -538,7 +540,7 @@ const app = {
 
         // Fetch tasks for this job
         try {
-            const js = await this.fetchAPI(`/v1/jobs/${jobName}/status`);
+            const js = await this.fetchAPI(`/v1/jobs/${jobId}/status`);
             const tasks = [];
             if (js && js.tasks_by_agent) {
                 for (const [agentId, agentTasks] of Object.entries(js.tasks_by_agent)) {
@@ -594,7 +596,7 @@ const app = {
 
     closeJobDetail() {
         clearInterval(this.detailTimer);
-        this.activeJobName = null;
+        this.activeJobId = null;
         document.getElementById('jobDetailView').classList.add('hidden');
         document.getElementById('jobsListView').classList.remove('hidden');
         if (!this._skipPush) {
@@ -680,8 +682,8 @@ const app = {
         this._skipPush = true;
         this.closeLogs();
         if (hash.startsWith('#jobs/')) {
-            const jobName = decodeURIComponent(hash.slice(6));
-            this.openJobDetail(jobName);
+            const jobId = decodeURIComponent(hash.slice(6));
+            this.openJobDetail(jobId);
         } else if (hash === '#jobs') {
             this.showTab('jobs');
         } else {
@@ -745,7 +747,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         app.closeLogs();
         app.hideAddCluster();
-        if (app.activeJobName) app.closeJobDetail();
+        if (app.activeJobId) app.closeJobDetail();
     }
 });
 
