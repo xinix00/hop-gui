@@ -228,6 +228,7 @@ const app = {
             .then(resp => {
                 if (!resp.ok || !resp.body) throw new Error(`SSE HTTP ${resp.status}`);
                 this.setSseStatus(true);
+                this.refresh();
                 const reader = resp.body.getReader();
                 const decoder = new TextDecoder();
                 let buf = '';
@@ -241,9 +242,12 @@ const app = {
                         for (const line of lines) {
                             if (line.startsWith('event: ')) {
                                 currentEvent = line.slice(7).trim();
-                            } else if (line.startsWith('data:') && currentEvent !== 'ping') {
-                                clearTimeout(this.refreshTimer);
-                                this.refreshTimer = setTimeout(() => this.refresh(), 500);
+                            } else if (line.startsWith('data:')) {
+                                if (currentEvent !== 'ping') {
+                                    console.log('[SSE] event:', currentEvent, '→ refresh triggered');
+                                    clearTimeout(this.refreshTimer);
+                                    this.refreshTimer = setTimeout(() => this.refresh(), 500);
+                                }
                             } else if (line === '') {
                                 currentEvent = '';
                             }
