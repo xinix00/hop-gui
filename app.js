@@ -451,30 +451,24 @@ const app = {
         const [moved] = sorted.splice(fromIdx, 1);
         sorted.splice(toIdx, 0, moved);
 
-        // Assign dense priorities 0..N-1 based on new position (0 = most important)
-        const patches = [];
-        sorted.forEach((job, i) => {
-            const newPrio = i;
-            if (job.priority !== newPrio) {
-                patches.push(this.fetchAPI(`/v1/jobs/${job.name}/priority`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ priority: newPrio }),
-                }));
-                // Update local state immediately for responsive UI
-                job.priority = newPrio;
-            }
-        });
+        // Optimistic local reorder so UI responds immediately
+        sorted.splice(fromIdx, 1);
+        sorted.splice(toIdx, 0, moved);
+        sorted.forEach((job, i) => { job.priority = i; });
 
-        // Optimistic re-render, then sync
         const placedPerJob = (this.status && this.status.placed) || {};
         this.renderJobsTable(this.jobs, placedPerJob, this.agents.length);
 
+        // One PATCH — server inserts the job at toIdx and renumbers everything
         try {
-            await Promise.all(patches);
+            await this.fetchAPI(`/v1/jobs/${moved.name}/priority`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ priority: toIdx }),
+            });
         } catch (err) {
             console.error('Priority update failed:', err);
-            this.refresh(); // Fall back to server state on error
+            this.refresh();
         }
     },
 
