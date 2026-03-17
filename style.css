@@ -365,6 +365,17 @@ code {
     animation: settle-pulse 2s ease-in-out infinite;
 }
 
+#sseStatus.sse-error {
+    background: rgba(248, 81, 73, 0.1);
+    color: var(--danger);
+    padding: 6px 16px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    font-size: 12px;
+}
+#sseStatus.sse-ok { display: none; }
+
 .refresh {
     color: var(--text-muted);
     font-size: 12px;

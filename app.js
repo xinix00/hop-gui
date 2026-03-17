@@ -205,6 +205,18 @@ const app = {
         }
     },
 
+    setSseStatus(connected, msg) {
+        const el = document.getElementById('sseStatus');
+        if (!el) return;
+        if (connected) {
+            el.className = 'sse-ok';
+            el.textContent = '';
+        } else {
+            el.className = 'sse-error';
+            el.textContent = msg || 'SSE disconnected — retrying…';
+        }
+    },
+
     connectSSE() {
         this.disconnectSSE();
 
@@ -215,9 +227,11 @@ const app = {
         fetch(url, { headers: this.authHeaders(), signal: abort.signal })
             .then(resp => {
                 if (!resp.ok || !resp.body) throw new Error(`SSE HTTP ${resp.status}`);
+                this.setSseStatus(true);
                 const reader = resp.body.getReader();
                 const decoder = new TextDecoder();
                 let buf = '';
+                let currentEvent = '';
                 const read = () => {
                     reader.read().then(({ done, value }) => {
                         if (done) throw new Error('SSE stream ended');
@@ -225,22 +239,28 @@ const app = {
                         const lines = buf.split('\n');
                         buf = lines.pop();
                         for (const line of lines) {
-                            if (line.startsWith('event: ') || line.startsWith('data:')) {
+                            if (line.startsWith('event: ')) {
+                                currentEvent = line.slice(7).trim();
+                            } else if (line.startsWith('data:') && currentEvent !== 'ping') {
                                 clearTimeout(this.refreshTimer);
                                 this.refreshTimer = setTimeout(() => this.refresh(), 500);
+                            } else if (line === '') {
+                                currentEvent = '';
                             }
                         }
                         read();
-                    }).catch(() => {
+                    }).catch(err => {
                         if (!abort.signal.aborted) {
+                            this.setSseStatus(false, `SSE error: ${err.message} — retrying in 5s`);
                             setTimeout(() => this.connectSSE(), 5000);
                         }
                     });
                 };
                 read();
             })
-            .catch(() => {
+            .catch(err => {
                 if (!abort.signal.aborted) {
+                    this.setSseStatus(false, `SSE failed: ${err.message} — retrying in 5s`);
                     setTimeout(() => this.connectSSE(), 5000);
                 }
             });
