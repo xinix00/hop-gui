@@ -207,7 +207,6 @@ const app = {
 
     connectSSE() {
         this.disconnectSSE();
-        this.refresh();
 
         const abort = new AbortController();
         this.clusterSSE = abort;
@@ -347,11 +346,11 @@ const app = {
         }
     },
 
-    // Sort jobs by effective priority: 0 (unset) sorts last, others ascending.
+    // Sort jobs by effective priority: null/undefined sorts last, 0 = most important.
     sortedByPriority(jobs) {
         return [...jobs].sort((a, b) => {
-            const pa = a.priority || Infinity;
-            const pb = b.priority || Infinity;
+            const pa = a.priority != null ? a.priority : Infinity;
+            const pb = b.priority != null ? b.priority : Infinity;
             return pa !== pb ? pa - pb : a.name.localeCompare(b.name);
         });
     },
@@ -372,7 +371,7 @@ const app = {
             const statusClass = ok ? 'status-ok' : 'status-degraded';
             const statusText = ok ? 'OK' : 'DEGRADED';
             const jobTip = this.formatJobTooltip(job);
-            const prioLabel = job.priority ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
+            const prioLabel = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
 
             return `
             <tr class="clickable" draggable="true" data-job-name="${job.name}" data-drag-idx="${idx}"
