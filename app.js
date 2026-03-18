@@ -1,3 +1,13 @@
+function httpStatusMessage(status) {
+    switch (status) {
+        case 502: return 'HTTP 502 — agent cannot reach the leader (leader down or election in progress)';
+        case 503: return 'HTTP 503 — no leader available yet (election in progress)';
+        case 401: return 'HTTP 401 — authentication failed (check API key)';
+        case 403: return 'HTTP 403 — access denied (check API key)';
+        default:  return `HTTP ${status}`;
+    }
+}
+
 const app = {
     clusterSSE: null,
     refreshTimer: null,
@@ -133,7 +143,7 @@ const app = {
     async fetchAPI(path, options = {}) {
         const headers = { ...this.authHeaders(), ...(options.headers || {}) };
         const resp = await fetch(this.getEndpoint() + path, { ...options, headers });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        if (!resp.ok) throw new Error(httpStatusMessage(resp.status));
         if (resp.status === 204) return null;
         return resp.json();
     },
@@ -226,7 +236,7 @@ const app = {
         const url = this.getEndpoint() + '/v1/events';
         fetch(url, { headers: this.authHeaders(), signal: abort.signal })
             .then(resp => {
-                if (!resp.ok || !resp.body) throw new Error(`SSE HTTP ${resp.status}`);
+                if (!resp.ok || !resp.body) throw new Error(httpStatusMessage(resp.status));
                 this.setSseStatus(true);
                 this.refresh();
                 const reader = resp.body.getReader();
@@ -314,11 +324,11 @@ const app = {
         }
     },
 
-    async deleteJob(jobId, jobName) {
+    async deleteJob(jobName) {
         if (!confirm(`Delete job ${jobName}?`)) return;
         try {
-            await this.fetchAPI(`/v1/jobs/${jobId}`, { method: 'DELETE' });
-            if (this.activeJobId === jobId) this.closeJobDetail();
+            await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
+            if (this.activeJobId === jobName) this.closeJobDetail();
             this.refresh();
         } catch (err) {
             alert('Failed to delete job: ' + err.message);
@@ -398,8 +408,8 @@ const app = {
             const prioLabel = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
 
             return `
-            <tr class="clickable" draggable="true" data-job-id="${job.id}" data-drag-idx="${idx}"
-                onclick="app.openJobDetail('${job.id}')"
+            <tr class="clickable" draggable="true" data-job-id="${job.name}" data-drag-idx="${idx}"
+                onclick="app.openJobDetail('${job.name}')"
                 ondragstart="app.onDragStart(event, ${idx})"
                 ondragover="app.onDragOver(event)"
                 ondragleave="app.onDragLeave(event)"
@@ -411,7 +421,7 @@ const app = {
                 <td><code${job.command && job.command.length > 30 ? ` data-tooltip="${job.command}"` : ''}>${this.truncate(job.command || job.image || '', 30)}</code></td>
                 <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                 <td class="${statusClass}">${statusText}</td>
-                <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.id}', '${job.name}')">Delete</button></td>
+                <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
             </tr>`;
         }).join('');
     },
@@ -461,7 +471,7 @@ const app = {
 
         // One PATCH — server inserts the job at toIdx and renumbers everything
         try {
-            await this.fetchAPI(`/v1/jobs/${moved.id}/priority`, {
+            await this.fetchAPI(`/v1/jobs/${moved.name}/priority`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ priority: toIdx }),
@@ -485,9 +495,8 @@ const app = {
         document.getElementById('jobsListView').classList.add('hidden');
         document.getElementById('jobDetailView').classList.remove('hidden');
 
-        const job = this.jobs.find(j => j.id === jobId);
-        document.getElementById('jobDetailName').textContent = job ? job.name : jobId;
-        document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobId, job ? job.name : jobId);
+        document.getElementById('jobDetailName').textContent = jobId;
+        document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobId);
 
         if (!this._skipPush) {
             history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
@@ -507,7 +516,7 @@ const app = {
     },
 
     async refreshJobDetail(jobId) {
-        const job = this.jobs.find(j => j.id === jobId);
+        const job = this.jobs.find(j => j.name === jobId);
         if (!job) {
             this.closeJobDetail();
             return;
