@@ -592,7 +592,7 @@ const app = {
                         <td class="task-restarts">${t.restart_count || 0}</td>
                         <td><span class="status task-state ${t.state}">${t.state}</span></td>
                         <td>
-                            ${t.state === 'running' || t.state === 'stopping' ? `<button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>` : '-'}
+                            <button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>
                         </td>
                     </tr>
                 `).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
