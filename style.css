@@ -274,6 +274,20 @@ th {
     text-transform: uppercase;
     font-weight: 500;
     letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+/* Jobs table: name gets remaining space, rest fixed width */
+#jobsTable th:nth-child(1),
+#jobsTable td:nth-child(1) { width: 32px; }
+#jobsTable th:nth-child(2),
+#jobsTable td:nth-child(2) { width: 50px; }
+#jobsTable th:nth-child(4),
+#jobsTable td:nth-child(4) { width: 100px; }
+#jobsTable th:nth-child(5),
+#jobsTable td:nth-child(5) { width: 90px; }
+#jobsTable th:nth-child(6),
+#jobsTable td:nth-child(6) { width: 80px; }
 }
 
 tbody tr:hover { background: var(--bg-tertiary); }
