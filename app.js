@@ -194,12 +194,12 @@ const app = {
             const attrTitle = cap ? this.formatAttributes(cap.attributes) : '';
             return `
                 <tr>
-                    <td><code${attrTitle ? ` data-tooltip="${attrTitle}"` : ''}>${a.id}</code></td>
-                    <td><span class="version">${a.version || 'unknown'}</span></td>
-                    <td><code>${a.endpoint}</code></td>
-                    <td>${cpuStr}</td>
-                    <td>${memStr}</td>
-                    <td>${tasksStr}</td>
+                    <td data-label="ID"><code${attrTitle ? ` data-tooltip="${attrTitle}"` : ''}>${a.id}</code></td>
+                    <td data-label="Version"><span class="version">${a.version || 'unknown'}</span></td>
+                    <td data-label="Endpoint"><code>${a.endpoint}</code></td>
+                    <td data-label="CPU">${cpuStr}</td>
+                    <td data-label="Memory">${memStr}</td>
+                    <td data-label="Tasks">${tasksStr}</td>
                 </tr>`;
         }).join('');
     },
@@ -432,12 +432,12 @@ const app = {
                 ondragleave="app.onDragLeave(event)"
                 ondrop="app.onDrop(event, ${idx})"
                 ondragend="app.onDragEnd(event)">
-                <td onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
-                <td>${prioLabel}</td>
-                <td><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
-                <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
-                <td class="${statusClass}">${statusText}</td>
-                <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
+                <td class="mobile-hide" onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
+                <td data-label="Prio">${prioLabel}</td>
+                <td data-label="Name"><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
+                <td data-label="Running">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
+                <td data-label="Status" class="${statusClass}">${statusText}</td>
+                <td class="mobile-actions"><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
             </tr>`;
         }).join('');
     },
@@ -567,20 +567,20 @@ const app = {
             const rows = job.artifacts.map(a => {
                 const match = a.match ? Object.entries(a.match).map(([k,v]) => `${k}=${v}`).join(', ') : '';
                 const name = a.filename || '';
-                return `<tr><td><code>${a.url}</code></td><td>${match}</td><td>${name}</td><td>${a.extract || 'binary'}</td></tr>`;
+                return `<tr><td data-label="URL"><code>${a.url}</code></td><td data-label="Match">${match}</td><td data-label="Filename">${name}</td><td data-label="Extract">${a.extract || 'binary'}</td></tr>`;
             }).join('');
             html += `<details class="detail-section" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
 
         // Volumes
         if (job.volumes && Object.keys(job.volumes).length > 0) {
-            const rows = Object.entries(job.volumes).map(([host, task]) => `<tr><td><code>${host}</code></td><td><code>${task}</code></td></tr>`).join('');
+            const rows = Object.entries(job.volumes).map(([host, task]) => `<tr><td data-label="Host"><code>${host}</code></td><td data-label="Task"><code>${task}</code></td></tr>`).join('');
             html += `<details class="detail-section" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
 
         // Environment
         if (job.env && Object.keys(job.env).length > 0) {
-            const rows = Object.entries(job.env).sort().map(([k, v]) => `<tr><td><code>${k}</code></td><td><code>${v}</code></td></tr>`).join('');
+            const rows = Object.entries(job.env).sort().map(([k, v]) => `<tr><td data-label="Key"><code>${k}</code></td><td data-label="Value"><code>${v}</code></td></tr>`).join('');
             html += `<details class="detail-section"><summary>Environment (${Object.keys(job.env).length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
 
@@ -644,14 +644,14 @@ const app = {
                 // Full render (new tasks, different count, etc.)
                 tbody.innerHTML = tasks.length ? tasks.map(t => `
                     <tr data-task-id="${t.id}">
-                        <td><code>${t.id.slice(0, 8)}</code></td>
-                        <td><code>${t.agentId}</code></td>
-                        <td>${this.formatPorts(t.ports)}</td>
-                        <td class="task-cpu">${this.formatPercent(t.cpu_percent)}</td>
-                        <td class="task-mem">${this.formatPercent(t.mem_percent)}</td>
-                        <td class="task-restarts">${t.restart_count || 0}</td>
-                        <td><span class="status task-state ${t.state}">${t.state}</span></td>
-                        <td>
+                        <td data-label="Task"><code>${t.id.slice(0, 8)}</code></td>
+                        <td data-label="Agent"><code>${t.agentId}</code></td>
+                        <td data-label="Ports">${this.formatPorts(t.ports)}</td>
+                        <td data-label="CPU" class="task-cpu">${this.formatPercent(t.cpu_percent)}</td>
+                        <td data-label="Mem" class="task-mem">${this.formatPercent(t.mem_percent)}</td>
+                        <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
+                        <td data-label="State"><span class="status task-state ${t.state}">${t.state}</span></td>
+                        <td class="mobile-actions">
                             <button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>
                         </td>
                     </tr>

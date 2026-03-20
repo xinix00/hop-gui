@@ -288,7 +288,6 @@ th {
 #jobsTable td:nth-child(5) { width: 90px; }
 #jobsTable th:nth-child(6),
 #jobsTable td:nth-child(6) { width: 80px; }
-}
 
 tbody tr:hover { background: var(--bg-tertiary); }
 tbody tr:last-child td { border-bottom: none; }
@@ -599,19 +598,95 @@ code {
     }
     .stat { padding: 12px; min-width: 0; }
     .stat-value { font-size: 22px; }
-    .stat-value code { font-size: 13px; }
+    .stat-value code { font-size: 12px; word-break: break-all; }
 
     /* Tabs */
     .tab { padding: 10px 16px; font-size: 14px; }
 
     /* Panel */
-    .panel { padding: 12px; }
+    .panel { padding: 12px; overflow-x: hidden; }
     .panel-header { flex-wrap: wrap; gap: 8px; }
 
-    /* Tables: horizontal scroll wrapper */
-    .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { min-width: 500px; }
-    th, td { padding: 8px; font-size: 13px; }
+    /* ── Card layout for all data tables ─────────── */
+    table { min-width: 0; }
+
+    #agentsTable thead,
+    #jobsTable thead,
+    #jobTasksTable thead { display: none; }
+
+    /* Each row becomes a card */
+    #agentsTable tbody tr,
+    #jobsTable tbody tr,
+    #jobTasksTable tbody tr {
+        display: block;
+        margin-bottom: 8px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+    }
+    #agentsTable tbody tr:last-child,
+    #jobsTable tbody tr:last-child,
+    #jobTasksTable tbody tr:last-child { margin-bottom: 0; }
+
+    /* Each cell becomes a label+value row */
+    #agentsTable td,
+    #jobsTable td,
+    #jobTasksTable td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 3px 0;
+        border-bottom: none;
+        font-size: 13px;
+        width: auto !important;
+    }
+
+    /* Labels from data-label attribute */
+    #agentsTable td[data-label]::before,
+    #jobsTable td[data-label]::before,
+    #jobTasksTable td[data-label]::before {
+        content: attr(data-label);
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+        margin-right: 12px;
+    }
+
+    /* Hide drag handle on mobile (touch drag is awkward) */
+    .mobile-hide { display: none !important; }
+
+    /* Action cells: no label, right-aligned */
+    .mobile-actions {
+        justify-content: flex-end !important;
+        padding-top: 6px !important;
+        border-top: 1px solid var(--border) !important;
+        margin-top: 4px;
+    }
+
+    /* Clickable cards: touch feedback */
+    #jobsTable tbody tr.clickable:active { background: var(--bg-tertiary); }
+
+    /* Code blocks: prevent overflow */
+    code { word-break: break-all; font-size: 11px; }
+
+    /* Empty state: no card styling */
+    #agentsTable tbody tr:has(.empty),
+    #jobsTable tbody tr:has(.empty),
+    #jobTasksTable tbody tr:has(.empty) {
+        border: none;
+        background: transparent;
+        padding: 0;
+    }
+    td.empty {
+        display: block !important;
+        text-align: center;
+        padding: 24px 0 !important;
+    }
+    td.empty::before { display: none !important; }
 
     /* Job detail header: stack */
     .job-detail-title { flex-wrap: wrap; gap: 8px; }
@@ -631,11 +706,37 @@ code {
     #logOutput { max-height: calc(100vh - 60px); }
 
     /* Detail sections */
-    .detail-pre { font-size: 11px; }
-    .detail-table { font-size: 11px; }
+    .detail-pre { font-size: 11px; overflow-x: auto; }
+
+    /* Detail tables: also card-style */
+    .detail-table thead { display: none; }
+    .detail-table tr {
+        display: block;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+    }
+    .detail-table tr:last-child { border-bottom: none; }
+    .detail-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 2px 0;
+        border-top: none;
+    }
+    .detail-table td[data-label]::before {
+        content: attr(data-label);
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+        margin-right: 8px;
+    }
 
     /* Tooltips: hide on touch */
     [data-tooltip]::after { display: none; }
+    [data-tooltip] { border-bottom: none; }
 }
 
 @media (max-width: 480px) {
@@ -655,9 +756,19 @@ code {
     button { padding: 8px 12px; font-size: 12px; }
     button.small { padding: 6px 8px; font-size: 11px; }
 
-    /* Tables: tighter */
-    table { min-width: 400px; }
-    th, td { padding: 6px; font-size: 12px; }
-
     .tab { padding: 8px 12px; font-size: 13px; }
+
+    .panel { padding: 8px; }
+
+    /* Cards: tighter on small screens */
+    #agentsTable tbody tr,
+    #jobsTable tbody tr,
+    #jobTasksTable tbody tr {
+        padding: 10px;
+        margin-bottom: 6px;
+    }
+
+    /* Detail tags: wrap tighter */
+    .detail-tags { gap: 4px; }
+    .detail-tag { font-size: 11px; padding: 3px 8px; }
 }
