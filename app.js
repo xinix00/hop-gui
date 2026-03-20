@@ -584,7 +584,19 @@ const app = {
             html += `<details class="detail-section"><summary>Environment (${Object.keys(job.env).length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
 
+        // Preserve open/closed state of <details> elements
+        const openState = {};
+        info.querySelectorAll('details').forEach(d => {
+            const key = d.querySelector('summary')?.textContent;
+            if (key) openState[key] = d.open;
+        });
+
         info.innerHTML = html;
+
+        info.querySelectorAll('details').forEach(d => {
+            const key = d.querySelector('summary')?.textContent;
+            if (key && key in openState) d.open = openState[key];
+        });
 
         // Status badge
         const placedPerJob = (this.status && this.status.placed) || {};
