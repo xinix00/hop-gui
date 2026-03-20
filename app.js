@@ -411,7 +411,7 @@ const app = {
         const sortedJobs = this.sortedByPriority(jobs);
 
         if (!sortedJobs.length) {
-            jobsBody.innerHTML = '<tr><td colspan="7" class="empty">No jobs</td></tr>';
+            jobsBody.innerHTML = '<tr><td colspan="6" class="empty">No jobs</td></tr>';
             return;
         }
 
@@ -435,7 +435,6 @@ const app = {
                 <td onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
                 <td>${prioLabel}</td>
                 <td><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
-                <td><code${job.command && job.command.length > 30 ? ` data-tooltip="${job.command}"` : ''}>${this.truncate(job.command || job.image || '', 30)}</code></td>
                 <td>${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                 <td class="${statusClass}">${statusText}</td>
                 <td><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
@@ -540,21 +539,52 @@ const app = {
             return;
         }
 
-        // Job info bar
+        // Job info sections
         const info = document.getElementById('jobDetailInfo');
-        const parts = [];
-        if (job.command) parts.push(`<code>${job.command}</code>`);
-        if (job.image) parts.push(`<span class="detail-tag">image: ${job.image}</span>`);
-        if (job.driver) parts.push(`<span class="detail-tag">${job.driver}</span>`);
+        let html = '';
+
+        // Tags row
+        const tags = [];
+        if (job.image) tags.push(`image: ${job.image}`);
+        if (job.driver) tags.push(job.driver);
         const countLabel = job.count === -1 ? 'all agents' : (job.count || 1);
-        parts.push(`<span class="detail-tag">count: ${countLabel}</span>`);
-        if (job.update_policy) parts.push(`<span class="detail-tag">update: ${job.update_policy}</span>`);
-        if (job.tags && Object.keys(job.tags).length > 0) {
-            for (const [k, v] of Object.entries(job.tags)) {
-                parts.push(`<span class="detail-tag">${k}=${v}</span>`);
-            }
+        tags.push(`count: ${countLabel}`);
+        if (job.update_policy) tags.push(`update: ${job.update_policy}`);
+        if (job.cpu_shares) tags.push(`cpu: ${job.cpu_shares}`);
+        if (job.memory_limit) tags.push(`mem: ${this.formatBytes(job.memory_limit)}`);
+        if (job.max_restarts !== undefined && job.max_restarts !== null) tags.push(`restarts: ${job.max_restarts === -1 ? '∞' : job.max_restarts}`);
+        if (job.tags) for (const [k, v] of Object.entries(job.tags)) tags.push(`${k}=${v}`);
+        if (job.affinity) for (const [k, v] of Object.entries(job.affinity)) tags.push(`affinity: ${k}=${v}`);
+        html += `<div class="detail-tags">${tags.map(t => `<span class="detail-tag">${t}</span>`).join(' ')}</div>`;
+
+        // Command
+        if (job.command) {
+            html += `<details class="detail-section"><summary>Command</summary><pre class="detail-pre">${job.command.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></details>`;
         }
-        info.innerHTML = parts.join(' ');
+
+        // Artifacts
+        if (job.artifacts && job.artifacts.length > 0) {
+            const rows = job.artifacts.map(a => {
+                const match = a.match ? Object.entries(a.match).map(([k,v]) => `${k}=${v}`).join(', ') : '';
+                const name = a.filename || '';
+                return `<tr><td><code>${a.url}</code></td><td>${match}</td><td>${name}</td><td>${a.extract || 'binary'}</td></tr>`;
+            }).join('');
+            html += `<details class="detail-section" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+
+        // Volumes
+        if (job.volumes && Object.keys(job.volumes).length > 0) {
+            const rows = Object.entries(job.volumes).map(([host, task]) => `<tr><td><code>${host}</code></td><td><code>${task}</code></td></tr>`).join('');
+            html += `<details class="detail-section" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+
+        // Environment
+        if (job.env && Object.keys(job.env).length > 0) {
+            const rows = Object.entries(job.env).sort().map(([k, v]) => `<tr><td><code>${k}</code></td><td><code>${v}</code></td></tr>`).join('');
+            html += `<details class="detail-section"><summary>Environment (${Object.keys(job.env).length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+
+        info.innerHTML = html;
 
         // Status badge
         const placedPerJob = (this.status && this.status.placed) || {};
