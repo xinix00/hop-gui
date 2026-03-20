@@ -324,6 +324,23 @@ const app = {
         }
     },
 
+    async redeployJob(jobName) {
+        if (!confirm(`Redeploy job ${jobName}? This triggers a rolling update.`)) return;
+        try {
+            const jobs = await this.fetchAPI('/v1/jobs');
+            const job = jobs.find(j => j.name === jobName);
+            if (!job) throw new Error('Job not found');
+            await this.fetchAPI('/v1/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(job),
+            });
+            this.refresh();
+        } catch (err) {
+            alert('Failed to redeploy: ' + err.message);
+        }
+    },
+
     async deleteJob(jobName) {
         if (!confirm(`Delete job ${jobName}?`)) return;
         try {
@@ -497,6 +514,7 @@ const app = {
 
         document.getElementById('jobDetailName').textContent = jobId;
         document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobId);
+        document.getElementById('jobDetailRedeploy').onclick = () => this.redeployJob(jobId);
 
         if (!this._skipPush) {
             history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
