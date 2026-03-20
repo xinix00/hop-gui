@@ -567,3 +567,97 @@ code {
     word-wrap: break-word;
     color: var(--text-muted);
 }
+
+/* ── Responsive / Mobile ─────────────────────────── */
+
+@media (max-width: 768px) {
+    body { padding: 12px; }
+
+    /* Cluster bar: horizontal scroll */
+    .cluster-bar {
+        margin: -12px -12px 16px -12px;
+        padding: 6px 12px 0 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .cluster-tabs { flex-shrink: 0; }
+    .cluster-tab { padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+
+    /* Cluster form: stack vertically */
+    .cluster-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .cluster-form input { width: 100%; }
+
+    /* Stats: 2×2 grid */
+    .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .stat { padding: 12px; min-width: 0; }
+    .stat-value { font-size: 22px; }
+    .stat-value code { font-size: 13px; }
+
+    /* Tabs */
+    .tab { padding: 10px 16px; font-size: 14px; }
+
+    /* Panel */
+    .panel { padding: 12px; }
+    .panel-header { flex-wrap: wrap; gap: 8px; }
+
+    /* Tables: horizontal scroll wrapper */
+    .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 500px; }
+    th, td { padding: 8px; font-size: 13px; }
+
+    /* Job detail header: stack */
+    .job-detail-title { flex-wrap: wrap; gap: 8px; }
+    .job-detail-title h2 { font-size: 16px; }
+
+    /* Forms */
+    .form-row { flex-direction: column; }
+
+    /* Modal: fullscreen */
+    .modal-content {
+        width: 100%;
+        max-width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+        height: 100%;
+    }
+    #logOutput { max-height: calc(100vh - 60px); }
+
+    /* Detail sections */
+    .detail-pre { font-size: 11px; }
+    .detail-table { font-size: 11px; }
+
+    /* Tooltips: hide on touch */
+    [data-tooltip]::after { display: none; }
+}
+
+@media (max-width: 480px) {
+    body { padding: 8px; }
+
+    .cluster-bar {
+        margin: -8px -8px 12px -8px;
+        padding: 4px 8px 0 8px;
+    }
+
+    /* Stats: single column */
+    .stats { grid-template-columns: 1fr; }
+
+    h1 { font-size: 20px; }
+
+    /* Smaller buttons */
+    button { padding: 8px 12px; font-size: 12px; }
+    button.small { padding: 6px 8px; font-size: 11px; }
+
+    /* Tables: tighter */
+    table { min-width: 400px; }
+    th, td { padding: 6px; font-size: 12px; }
+
+    .tab { padding: 8px 12px; font-size: 13px; }
+}
