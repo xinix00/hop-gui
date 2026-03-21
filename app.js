@@ -1,3 +1,5 @@
+const $ = id => document.getElementById(id);
+
 function httpStatusMessage(status) {
     switch (status) {
         case 502: return 'HTTP 502 — agent cannot reach the leader (leader down or election in progress)';
@@ -9,24 +11,14 @@ function httpStatusMessage(status) {
 }
 
 const app = {
-    clusterSSE: null,
-    refreshTimer: null,
-    detailTimer: null,
-    logAbort: null,
-    currentTask: null,
-    currentStream: 'stdout',
-    activeJobId: null, // currently viewed job detail
-    _skipPush: false, // true when navigating via popstate (don't push again)
-    agents: [],
-    status: null,
-    jobs: [],
-    capacityByEndpoint: {},
-    clusters: [],
-    activeCluster: 0,
-    connectedEndpoint: null, // endpoint with active SSE
-    _poolEndpoints: [],      // known agent endpoints for failover
-    _poolIdx: 0,             // rotation index during failover
-    fallbackTimer: null,     // polling when SSE is down
+    clusterSSE: null, refreshTimer: null, detailTimer: null, fallbackTimer: null,
+    logAbort: null, currentTask: null, currentStream: 'stdout',
+    activeJobId: null, _skipPush: false, _dragSrcIdx: null,
+    agents: [], status: null, jobs: [], capacityByEndpoint: {},
+    clusters: [], activeCluster: 0,
+    connectedEndpoint: null, _poolEndpoints: [], _poolIdx: 0,
+
+    // ── Cluster config ─────────────────────────────
 
     getConfiguredEndpoint() {
         const c = this.clusters[this.activeCluster];
@@ -34,32 +26,19 @@ const app = {
         return ep.startsWith('http') ? ep : 'http://' + ep;
     },
 
-    getEndpoint() {
-        return this.connectedEndpoint || this.getConfiguredEndpoint();
-    },
-
-    getApiKey() {
-        const c = this.clusters[this.activeCluster];
-        return c ? (c.apiKey || '') : '';
-    },
+    getEndpoint() { return this.connectedEndpoint || this.getConfiguredEndpoint(); },
 
     authHeaders() {
-        const h = {};
-        const key = this.getApiKey();
-        if (key) h['X-API-Key'] = key;
-        return h;
+        const key = this.clusters[this.activeCluster]?.apiKey;
+        return key ? { 'X-API-Key': key } : {};
     },
 
     loadClusters() {
         try {
             const stored = localStorage.getItem('easyrun-clusters');
-            if (stored) {
-                this.clusters = JSON.parse(stored);
-            }
+            if (stored) this.clusters = JSON.parse(stored);
         } catch (e) { /* ignore */ }
-        if (!this.clusters.length) {
-            this.clusters = [];
-        }
+        if (!this.clusters.length) this.clusters = [];
         const active = localStorage.getItem('easyrun-active-cluster');
         this.activeCluster = active !== null ? Math.min(Number(active), this.clusters.length - 1) : 0;
     },
@@ -70,13 +49,20 @@ const app = {
     },
 
     renderClusterTabs() {
-        const container = document.getElementById('clusterTabs');
-        container.innerHTML = this.clusters.map((c, i) =>
+        $('clusterTabs').innerHTML = this.clusters.map((c, i) =>
             `<button class="cluster-tab${i === this.activeCluster ? ' active' : ''}" onclick="app.switchCluster(${i})">` +
-                `${c.name}` +
-                `<span class="cluster-tab-remove" onclick="event.stopPropagation(); app.removeCluster(${i})">×</span>` +
+                `${c.name}<span class="cluster-tab-remove" onclick="event.stopPropagation(); app.removeCluster(${i})">×</span>` +
             `</button>`
         ).join('');
+    },
+
+    _resetState() {
+        this.agents = [];
+        this.status = null;
+        this.jobs = [];
+        this.capacityByEndpoint = {};
+        this.connectedEndpoint = null;
+        this._poolIdx = 0;
     },
 
     switchCluster(index) {
@@ -84,34 +70,26 @@ const app = {
         this.activeCluster = index;
         this.saveClusters();
         this.renderClusterTabs();
-        this.agents = [];
-        this.status = null;
-        this.jobs = [];
-        this.capacityByEndpoint = {};
+        this._resetState();
         this.activeJobId = null;
-        this.connectedEndpoint = null;
-        this._poolIdx = 0;
         this._stopFallbackPoll();
         this._loadPool();
         this.connectSSE();
     },
 
-    showAddCluster() {
-        document.getElementById('clusterForm').classList.remove('hidden');
-        document.getElementById('clusterName').focus();
-    },
+    showAddCluster() { $('clusterForm').classList.remove('hidden'); $('clusterName').focus(); },
 
     hideAddCluster() {
-        document.getElementById('clusterForm').classList.add('hidden');
-        document.getElementById('clusterName').value = '';
-        document.getElementById('clusterEndpoint').value = '';
-        document.getElementById('clusterApiKey').value = '';
+        $('clusterForm').classList.add('hidden');
+        $('clusterName').value = '';
+        $('clusterEndpoint').value = '';
+        $('clusterApiKey').value = '';
     },
 
     addClusterFromForm() {
-        const name = document.getElementById('clusterName').value.trim();
-        const endpoint = document.getElementById('clusterEndpoint').value.trim();
-        const apiKey = document.getElementById('clusterApiKey').value.trim();
+        const name = $('clusterName').value.trim();
+        const endpoint = $('clusterEndpoint').value.trim();
+        const apiKey = $('clusterApiKey').value.trim();
         if (!name || !endpoint) return;
         const cluster = { name, endpoint };
         if (apiKey) cluster.apiKey = apiKey;
@@ -120,12 +98,7 @@ const app = {
         this.saveClusters();
         this.renderClusterTabs();
         this.hideAddCluster();
-        this.agents = [];
-        this.status = null;
-        this.jobs = [];
-        this.capacityByEndpoint = {};
-        this.connectedEndpoint = null;
-        this._poolIdx = 0;
+        this._resetState();
         this._poolEndpoints = [];
         this.connectSSE();
     },
@@ -134,102 +107,35 @@ const app = {
         if (!confirm(`Remove cluster "${this.clusters[index].name}"?`)) return;
         const wasActive = index === this.activeCluster;
         this.clusters.splice(index, 1);
-        if (this.activeCluster >= this.clusters.length) {
-            this.activeCluster = Math.max(0, this.clusters.length - 1);
-        } else if (index < this.activeCluster) {
-            this.activeCluster--;
-        }
+        if (this.activeCluster >= this.clusters.length) this.activeCluster = Math.max(0, this.clusters.length - 1);
+        else if (index < this.activeCluster) this.activeCluster--;
         this.saveClusters();
         this.renderClusterTabs();
         if (wasActive) {
-            this.agents = [];
-            this.status = null;
-            this.jobs = [];
-            this.capacityByEndpoint = {};
-            this.connectedEndpoint = null;
-            this._poolIdx = 0;
+            this._resetState();
             this._stopFallbackPoll();
-            if (this.clusters.length) {
-                this._loadPool();
-                this.connectSSE();
-            } else {
-                this.disconnectSSE();
-                this.showAddCluster();
-            }
+            if (this.clusters.length) { this._loadPool(); this.connectSSE(); }
+            else { this.disconnectSSE(); this.showAddCluster(); }
         }
     },
+
+    // ── API ────────────────────────────────────────
 
     async fetchAPI(path, options = {}) {
         const headers = { ...this.authHeaders(), ...(options.headers || {}) };
         const resp = await fetch(this.getEndpoint() + path, { ...options, headers });
         if (!resp.ok) throw new Error(httpStatusMessage(resp.status));
-        if (resp.status === 204) return null;
-        return resp.json();
+        return resp.status === 204 ? null : resp.json();
     },
 
     async fetchAgentCapacity(endpoint) {
         try {
             const resp = await fetch(`${endpoint}/capacity`, { headers: this.authHeaders() });
-            if (resp.ok) {
-                const data = await resp.json();
-                this.capacityByEndpoint[endpoint] = data;
-                return data;
-            }
+            if (resp.ok) this.capacityByEndpoint[endpoint] = await resp.json();
         } catch (e) { /* agent might not be reachable */ }
-        return null;
     },
 
-    formatBytes(bytes) {
-        if (bytes === null || bytes === undefined) return '-';
-        if (bytes === 0) return '0';
-        const gb = bytes / (1024 * 1024 * 1024);
-        if (gb >= 1) return `${gb.toFixed(1)} GB`;
-        const mb = bytes / (1024 * 1024);
-        if (mb >= 1) return `${mb.toFixed(0)} MB`;
-        const kb = bytes / 1024;
-        if (kb >= 1) return `${kb.toFixed(0)} KB`;
-        return `${bytes} B`;
-    },
-
-    renderAgentsTable() {
-        const agentsBody = document.querySelector('#agentsTable tbody');
-        if (!this.agents.length) {
-            agentsBody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>';
-            return;
-        }
-        const sorted = [...this.agents].sort((a, b) => a.id.localeCompare(b.id));
-        agentsBody.innerHTML = sorted.map(a => {
-            const cap = this.capacityByEndpoint[a.endpoint];
-            let cpuStr = '-';
-            if (cap) {
-                const usedCores = (cap.cpu_used_shares / 1024).toFixed(1);
-                cpuStr = `${usedCores}/${cap.cpu_cores}`;
-            }
-            let memStr = '-';
-            if (cap) {
-                memStr = `${this.formatBytes(cap.memory_used_bytes)}/${this.formatBytes(cap.memory_bytes)}`;
-            }
-            const tasksStr = cap ? cap.tasks_running : '-';
-            const attrTitle = cap ? this.formatAttributes(cap.attributes) : '';
-            const isConn = a.endpoint === this.connectedEndpoint;
-            return `
-                <tr>
-                    <td data-label="ID"><code${attrTitle ? ` data-tooltip="${attrTitle}"` : ''}>${a.id}</code></td>
-                    <td data-label="Version"><span class="version">${a.version || 'unknown'}</span></td>
-                    <td data-label="Endpoint"><code>${a.endpoint}</code>${isConn ? ' <span class="connected-dot">●</span>' : ''}</td>
-                    <td data-label="CPU">${cpuStr}</td>
-                    <td data-label="Memory">${memStr}</td>
-                    <td data-label="Tasks">${tasksStr}</td>
-                </tr>`;
-        }).join('');
-    },
-
-    connect() {
-        this._loadPool();
-        this.connectSSE();
-    },
-
-    // ── Agent pool for SSE failover ────────────────
+    // ── SSE + failover pool ────────────────────────
 
     _buildEndpointList() {
         const configured = this.getConfiguredEndpoint();
@@ -267,181 +173,111 @@ const app = {
     },
 
     _stopFallbackPoll() {
-        if (this.fallbackTimer) {
-            clearInterval(this.fallbackTimer);
-            this.fallbackTimer = null;
-        }
+        if (this.fallbackTimer) { clearInterval(this.fallbackTimer); this.fallbackTimer = null; }
     },
 
     _tryNextEndpoint() {
         this._poolIdx++;
         const endpoints = this._buildEndpointList();
         const total = endpoints.length;
+        this._startFallbackPoll();
         if (this._poolIdx >= total) {
             this.setSseStatus(false, `All ${total} agent(s) unreachable — retrying in 10s`);
             this._poolIdx = 0;
-            this._startFallbackPoll();
             setTimeout(() => this.connectSSE(), 10000);
         } else {
             const next = endpoints[this._poolIdx].replace(/^https?:\/\//, '');
             this.setSseStatus(false, `Trying ${next}... (${this._poolIdx + 1}/${total})`);
-            this._startFallbackPoll();
             setTimeout(() => this.connectSSE(), 1000);
         }
     },
 
     disconnectSSE() {
-        if (this.clusterSSE) {
-            this.clusterSSE.abort();
-            this.clusterSSE = null;
-        }
+        if (this.clusterSSE) { this.clusterSSE.abort(); this.clusterSSE = null; }
     },
 
-    setSseStatus(connected, msg) {
-        const el = document.getElementById('sseStatus');
+    setSseStatus(ok, msg) {
+        const el = $('sseStatus');
         if (!el) return;
-        if (connected) {
-            el.className = 'sse-ok';
-            el.textContent = '';
-        } else {
-            el.className = 'sse-error';
-            el.textContent = msg || 'SSE disconnected — retrying…';
-        }
+        el.className = ok ? 'sse-ok' : 'sse-error';
+        el.textContent = ok ? '' : (msg || 'SSE disconnected — retrying…');
     },
 
-    connectSSE() {
-        this.disconnectSSE();
+    connect() { this._loadPool(); this.connectSSE(); },
 
+    async connectSSE() {
+        this.disconnectSSE();
         const endpoints = this._buildEndpointList();
         if (!endpoints.length) return;
 
-        const idx = this._poolIdx % endpoints.length;
-        const endpoint = endpoints[idx];
-
+        const endpoint = endpoints[this._poolIdx % endpoints.length];
         const abort = new AbortController();
         this.clusterSSE = abort;
 
-        const url = endpoint + '/v1/events';
-        fetch(url, { headers: this.authHeaders(), signal: abort.signal })
-            .then(resp => {
-                if (!resp.ok || !resp.body) throw new Error(httpStatusMessage(resp.status));
-                this.connectedEndpoint = endpoint;
-                this._poolIdx = 0;
-                this.setSseStatus(true);
-                this._stopFallbackPoll();
-                this.refresh();
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buf = '';
-                let currentEvent = '';
-                const read = () => {
-                    reader.read().then(({ done, value }) => {
-                        if (done) throw new Error('SSE stream ended');
-                        buf += decoder.decode(value, { stream: true });
-                        const lines = buf.split('\n');
-                        buf = lines.pop();
-                        for (const line of lines) {
-                            if (line.startsWith('event: ')) {
-                                currentEvent = line.slice(7).trim();
-                            } else if (line.startsWith('data:')) {
-                                if (currentEvent !== 'ping') {
-                                    console.log('[SSE] event:', currentEvent, '→ refresh triggered');
-                                    clearTimeout(this.refreshTimer);
-                                    this.refreshTimer = setTimeout(() => this.refresh(), 500);
-                                }
-                            } else if (line === '') {
-                                currentEvent = '';
-                            }
-                        }
-                        read();
-                    }).catch(err => {
-                        if (!abort.signal.aborted) this._tryNextEndpoint();
-                    });
-                };
-                read();
-            })
-            .catch(err => {
-                if (!abort.signal.aborted) this._tryNextEndpoint();
+        try {
+            const resp = await fetch(endpoint + '/v1/events', {
+                headers: this.authHeaders(), signal: abort.signal
             });
+            if (!resp.ok || !resp.body) throw new Error(httpStatusMessage(resp.status));
+
+            this.connectedEndpoint = endpoint;
+            this._poolIdx = 0;
+            this.setSseStatus(true);
+            this._stopFallbackPoll();
+            this.refresh();
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '', event = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) throw new Error('SSE stream ended');
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) event = line.slice(7).trim();
+                    else if (line.startsWith('data:') && event !== 'ping') {
+                        clearTimeout(this.refreshTimer);
+                        this.refreshTimer = setTimeout(() => this.refresh(), 500);
+                    } else if (line === '') event = '';
+                }
+            }
+        } catch (e) {
+            if (!abort.signal.aborted) this._tryNextEndpoint();
+        }
     },
+
+    // ── Navigation ─────────────────────────────────
 
     showTab(name) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.getElementById(`tab-${name}`).classList.add('active');
-
-        // When switching to jobs tab, close detail view
+        $(`tab-${name}`).classList.add('active');
         if (name === 'jobs') {
             this.activeJobId = null;
-            document.getElementById('jobDetailView').classList.add('hidden');
-            document.getElementById('jobsListView').classList.remove('hidden');
+            $('jobDetailView').classList.add('hidden');
+            $('jobsListView').classList.remove('hidden');
         }
-
-        if (!this._skipPush) {
-            history.pushState(null, '', '#' + name);
-        }
+        if (!this._skipPush) history.pushState(null, '', '#' + name);
     },
 
-    toggleNewJob() {
-        document.getElementById('newJobForm').classList.toggle('hidden');
+    navigateToHash() {
+        const hash = location.hash || '#agents';
+        this._skipPush = true;
+        this.closeLogs();
+        if (hash.startsWith('#jobs/')) this.openJobDetail(decodeURIComponent(hash.slice(6)));
+        else if (hash === '#jobs') this.showTab('jobs');
+        else this.showTab('agents');
+        this._skipPush = false;
     },
 
-    async startJob() {
-        const jsonStr = document.getElementById('jobJson').value.trim();
-        if (!jsonStr) { alert('Enter job JSON'); return; }
+    // ── Data refresh ───────────────────────────────
 
-        let job;
-        try { job = JSON.parse(jsonStr); }
-        catch (e) { alert('Invalid JSON: ' + e.message); return; }
-
-        try {
-            await this.fetchAPI('/v1/jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(job)
-            });
-            document.getElementById('jobJson').value = '';
-            this.toggleNewJob();
-            this.refresh();
-        } catch (err) {
-            alert('Failed to start job: ' + err.message);
-        }
-    },
-
-    async redeployJob(jobName) {
-        if (!confirm(`Redeploy job ${jobName}? This triggers a rolling update.`)) return;
-        try {
-            const jobs = await this.fetchAPI('/v1/jobs');
-            const job = jobs.find(j => j.name === jobName);
-            if (!job) throw new Error('Job not found');
-            await this.fetchAPI('/v1/jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(job),
-            });
-            this.refresh();
-        } catch (err) {
-            alert('Failed to redeploy: ' + err.message);
-        }
-    },
-
-    async deleteJob(jobName) {
-        if (!confirm(`Delete job ${jobName}?`)) return;
-        try {
-            await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
-            if (this.activeJobId === jobName) this.closeJobDetail();
-            this.refresh();
-        } catch (err) {
-            alert('Failed to delete job: ' + err.message);
-        }
-    },
-
-    // Main refresh: lightweight (no per-job task fetching)
     async refresh() {
         try {
-            document.getElementById('error').innerHTML = '';
-
+            $('error').innerHTML = '';
             const [status, jobs, agents, leaderInfo] = await Promise.all([
                 this.fetchAPI('/v1/status'),
                 this.fetchAPI('/v1/jobs'),
@@ -452,40 +288,50 @@ const app = {
             this.agents = agents;
             this.status = status;
             this.jobs = jobs;
-
-            // Update agent pool for SSE failover + cache
             this._updatePool();
 
-            document.getElementById('agentCount').textContent = status.agents;
-            document.getElementById('totalPlaced').textContent = status.total_placed;
-            document.getElementById('totalJobs').textContent = status.jobs;
-            document.getElementById('leaderAddr').textContent = leaderInfo.leader || 'unknown';
+            $('agentCount').textContent = status.agents;
+            $('totalPlaced').textContent = status.total_placed;
+            $('totalJobs').textContent = status.jobs;
+            $('leaderAddr').textContent = leaderInfo.leader || 'unknown';
+            $('statsContainer').classList.toggle('settling', !!status.settling);
+            $('settleBadge').classList.toggle('active', !!status.settling);
 
-            document.getElementById('statsContainer').classList.toggle('settling', !!status.settling);
-            document.getElementById('settleBadge').classList.toggle('active', !!status.settling);
-
-            // Agents
-            for (const a of agents) {
-                this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
-            }
+            for (const a of agents) this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
             this.renderAgentsTable();
+            this.renderJobsTable(jobs, status.placed || {}, status.agents);
+            if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
 
-            // Jobs table
-            const placedPerJob = status.placed || {};
-            this.renderJobsTable(jobs, placedPerJob, status.agents);
-
-            // If job detail is open, refresh it too
-            if (this.activeJobId) {
-                this.refreshJobDetail(this.activeJobId);
-            }
-
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+            $('lastUpdate').textContent = new Date().toLocaleTimeString();
         } catch (err) {
-            document.getElementById('error').innerHTML = `<div class="warning">Waiting for cluster... (${err.message})</div>`;
+            $('error').innerHTML = `<div class="warning">Waiting for cluster... (${err.message})</div>`;
         }
     },
 
-    // Sort jobs by effective priority: null/undefined sorts last, 0 = most important.
+    // ── Agents table ───────────────────────────────
+
+    renderAgentsTable() {
+        const tbody = document.querySelector('#agentsTable tbody');
+        if (!this.agents.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>'; return; }
+        tbody.innerHTML = [...this.agents].sort((a, b) => a.id.localeCompare(b.id)).map(a => {
+            const cap = this.capacityByEndpoint[a.endpoint];
+            const cpu = cap ? `${(cap.cpu_used_shares / 1024).toFixed(1)}/${cap.cpu_cores}` : '-';
+            const mem = cap ? `${this.formatBytes(cap.memory_used_bytes)}/${this.formatBytes(cap.memory_bytes)}` : '-';
+            const tooltip = cap ? this.formatAttributes(cap.attributes) : '';
+            const conn = a.endpoint === this.connectedEndpoint;
+            return `<tr>
+                <td data-label="ID"><code${tooltip ? ` data-tooltip="${tooltip}"` : ''}>${a.id}</code></td>
+                <td data-label="Version"><span class="version">${a.version || 'unknown'}</span></td>
+                <td data-label="Endpoint"><code>${a.endpoint}</code>${conn ? ' <span class="connected-dot">●</span>' : ''}</td>
+                <td data-label="CPU">${cpu}</td>
+                <td data-label="Memory">${mem}</td>
+                <td data-label="Tasks">${cap ? cap.tasks_running : '-'}</td>
+            </tr>`;
+        }).join('');
+    },
+
+    // ── Jobs table ─────────────────────────────────
+
     sortedByPriority(jobs) {
         return [...jobs].sort((a, b) => {
             const pa = a.priority != null ? a.priority : Infinity;
@@ -495,255 +341,229 @@ const app = {
     },
 
     renderJobsTable(jobs, placedPerJob, agentCount) {
-        const jobsBody = document.querySelector('#jobsTable tbody');
-        const sortedJobs = this.sortedByPriority(jobs);
-
-        if (!sortedJobs.length) {
-            jobsBody.innerHTML = '<tr><td colspan="6" class="empty">No jobs</td></tr>';
-            return;
-        }
-
-        jobsBody.innerHTML = sortedJobs.map((job, idx) => {
+        const tbody = document.querySelector('#jobsTable tbody');
+        const sorted = this.sortedByPriority(jobs);
+        if (!sorted.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No jobs</td></tr>'; return; }
+        tbody.innerHTML = sorted.map((job, idx) => {
             const expected = job.count === -1 ? agentCount : (job.count || 1);
             const running = placedPerJob[job.name] || 0;
             const ok = running >= expected;
-            const statusClass = ok ? 'status-ok' : 'status-degraded';
-            const statusText = ok ? 'OK' : 'DEGRADED';
-            const jobTip = this.formatJobTooltip(job);
-            const prioLabel = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
-
-            return `
-            <tr class="clickable" draggable="true" data-job-id="${job.name}" data-drag-idx="${idx}"
+            const prio = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
+            const tip = this.formatJobTooltip(job);
+            return `<tr class="clickable" draggable="true" data-job-id="${job.name}" data-drag-idx="${idx}"
                 onclick="app.openJobDetail('${job.name}')"
-                ondragstart="app.onDragStart(event, ${idx})"
-                ondragover="app.onDragOver(event)"
-                ondragleave="app.onDragLeave(event)"
-                ondrop="app.onDrop(event, ${idx})"
-                ondragend="app.onDragEnd(event)">
+                ondragstart="app.onDragStart(event,${idx})" ondragover="app.onDragOver(event)"
+                ondragleave="app.onDragLeave(event)" ondrop="app.onDrop(event,${idx})" ondragend="app.onDragEnd(event)">
                 <td class="mobile-hide" onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
-                <td data-label="Prio">${prioLabel}</td>
-                <td data-label="Name"><code${jobTip ? ` data-tooltip="${jobTip}"` : ''}>${job.name}</code></td>
+                <td data-label="Prio">${prio}</td>
+                <td data-label="Name"><code${tip ? ` data-tooltip="${tip}"` : ''}>${job.name}</code></td>
                 <td data-label="Running">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
-                <td data-label="Status" class="${statusClass}">${statusText}</td>
+                <td data-label="Status" class="${ok ? 'status-ok' : 'status-degraded'}">${ok ? 'OK' : 'DEGRADED'}</td>
                 <td class="mobile-actions"><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
             </tr>`;
         }).join('');
     },
 
-    _dragSrcIdx: null,
+    toggleNewJob() { $('newJobForm').classList.toggle('hidden'); },
 
-    onDragStart(event, idx) {
+    async startJob() {
+        const jsonStr = $('jobJson').value.trim();
+        if (!jsonStr) { alert('Enter job JSON'); return; }
+        let job;
+        try { job = JSON.parse(jsonStr); }
+        catch (e) { alert('Invalid JSON: ' + e.message); return; }
+        try {
+            await this.fetchAPI('/v1/jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job)
+            });
+            $('jobJson').value = '';
+            this.toggleNewJob();
+            this.refresh();
+        } catch (err) { alert('Failed to start job: ' + err.message); }
+    },
+
+    async redeployJob(jobName) {
+        if (!confirm(`Redeploy job ${jobName}? This triggers a rolling update.`)) return;
+        try {
+            const jobs = await this.fetchAPI('/v1/jobs');
+            const job = jobs.find(j => j.name === jobName);
+            if (!job) throw new Error('Job not found');
+            await this.fetchAPI('/v1/jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job)
+            });
+            this.refresh();
+        } catch (err) { alert('Failed to redeploy: ' + err.message); }
+    },
+
+    async deleteJob(jobName) {
+        if (!confirm(`Delete job ${jobName}?`)) return;
+        try {
+            await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
+            if (this.activeJobId === jobName) this.closeJobDetail();
+            this.refresh();
+        } catch (err) { alert('Failed to delete job: ' + err.message); }
+    },
+
+    // ── Drag & drop priority ───────────────────────
+
+    onDragStart(e, idx) {
         this._dragSrcIdx = idx;
-        event.currentTarget.classList.add('dragging');
-        event.dataTransfer.effectAllowed = 'move';
+        e.currentTarget.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
     },
-
-    onDragOver(event) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        event.currentTarget.classList.add('drag-over');
-    },
-
-    onDragLeave(event) {
-        event.currentTarget.classList.remove('drag-over');
-    },
-
-    onDragEnd(event) {
-        event.currentTarget.classList.remove('dragging');
+    onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('drag-over'); },
+    onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); },
+    onDragEnd(e) {
+        e.currentTarget.classList.remove('dragging');
         document.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
         this._dragSrcIdx = null;
     },
 
-    async onDrop(event, toIdx) {
-        event.preventDefault();
-        event.currentTarget.classList.remove('drag-over');
+    async onDrop(e, toIdx) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
         const fromIdx = this._dragSrcIdx;
         if (fromIdx === null || fromIdx === toIdx) return;
 
-        // Reorder the sorted list
         const sorted = this.sortedByPriority(this.jobs);
         const [moved] = sorted.splice(fromIdx, 1);
         sorted.splice(toIdx, 0, moved);
-
-        // Optimistic local reorder so UI responds immediately
-        sorted.splice(fromIdx, 1);
-        sorted.splice(toIdx, 0, moved);
         sorted.forEach((job, i) => { job.priority = i; });
 
-        const placedPerJob = (this.status && this.status.placed) || {};
-        this.renderJobsTable(this.jobs, placedPerJob, this.agents.length);
+        this.renderJobsTable(this.jobs, this.status?.placed || {}, this.agents.length);
 
-        // One PATCH — server inserts the job at toIdx and renumbers everything
         try {
             await this.fetchAPI(`/v1/jobs/${moved.name}/priority`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ priority: toIdx }),
             });
-        } catch (err) {
-            console.error('Priority update failed:', err);
-            this.refresh();
-        }
+        } catch (err) { console.error('Priority update failed:', err); this.refresh(); }
     },
 
-    // Open job detail view
+    // ── Job detail ─────────────────────────────────
+
     async openJobDetail(jobId) {
         this.activeJobId = jobId;
-
-        // Ensure we're on the jobs tab
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelector('.tab[onclick*="jobs"]').classList.add('active');
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.getElementById('tab-jobs').classList.add('active');
+        $('tab-jobs').classList.add('active');
+        $('jobsListView').classList.add('hidden');
+        $('jobDetailView').classList.remove('hidden');
+        $('jobDetailName').textContent = jobId;
+        $('jobDetailDelete').onclick = () => this.deleteJob(jobId);
+        $('jobDetailRedeploy').onclick = () => this.redeployJob(jobId);
+        if (!this._skipPush) history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
 
-        document.getElementById('jobsListView').classList.add('hidden');
-        document.getElementById('jobDetailView').classList.remove('hidden');
-
-        document.getElementById('jobDetailName').textContent = jobId;
-        document.getElementById('jobDetailDelete').onclick = () => this.deleteJob(jobId);
-        document.getElementById('jobDetailRedeploy').onclick = () => this.redeployJob(jobId);
-
-        if (!this._skipPush) {
-            history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
-        }
-
-        // Show loading state
-        document.querySelector('#jobTasksTable tbody').innerHTML =
-            '<tr><td colspan="8" class="empty">Loading...</td></tr>';
-
+        document.querySelector('#jobTasksTable tbody').innerHTML = '<tr><td colspan="8" class="empty">Loading...</td></tr>';
         await this.refreshJobDetail(jobId);
 
-        // Poll task resources every 5s (CPU/Mem don't trigger SSE events)
         clearInterval(this.detailTimer);
-        this.detailTimer = setInterval(() => {
-            if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
-        }, 5000);
+        this.detailTimer = setInterval(() => { if (this.activeJobId) this.refreshJobDetail(this.activeJobId); }, 5000);
+    },
+
+    _renderJobInfo(job) {
+        const tags = [];
+        if (job.image) tags.push(`image: ${job.image}`);
+        if (job.driver) tags.push(job.driver);
+        tags.push(`count: ${job.count === -1 ? 'all agents' : (job.count || 1)}`);
+        if (job.update_policy) tags.push(`update: ${job.update_policy}`);
+        if (job.cpu_shares) tags.push(`cpu: ${job.cpu_shares}`);
+        if (job.memory_limit) tags.push(`mem: ${this.formatBytes(job.memory_limit)}`);
+        if (job.max_restarts != null) tags.push(`restarts: ${job.max_restarts === -1 ? '∞' : job.max_restarts}`);
+        if (job.tags) for (const [k, v] of Object.entries(job.tags)) tags.push(`${k}=${v}`);
+        if (job.affinity) for (const [k, v] of Object.entries(job.affinity)) tags.push(`affinity: ${k}=${v}`);
+
+        let html = `<div class="detail-tags">${tags.map(t => `<span class="detail-tag">${t}</span>`).join(' ')}</div>`;
+
+        if (job.command) {
+            html += `<details class="detail-section"><summary>Command</summary><pre class="detail-pre">${this._esc(job.command)}</pre></details>`;
+        }
+        if (job.artifacts?.length) {
+            const rows = job.artifacts.map(a => {
+                const match = a.match ? Object.entries(a.match).map(([k,v]) => `${k}=${v}`).join(', ') : '';
+                return `<tr><td data-label="URL"><code>${a.url}</code></td><td data-label="Match">${match}</td><td data-label="Filename">${a.filename || ''}</td><td data-label="Extract">${a.extract || 'binary'}</td></tr>`;
+            }).join('');
+            html += `<details class="detail-section" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+        if (job.volumes && Object.keys(job.volumes).length) {
+            const rows = Object.entries(job.volumes).map(([h, t]) =>
+                `<tr><td data-label="Host"><code>${h}</code></td><td data-label="Task"><code>${t}</code></td></tr>`
+            ).join('');
+            html += `<details class="detail-section" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+        if (job.env && Object.keys(job.env).length) {
+            const entries = Object.entries(job.env).sort();
+            const rows = entries.map(([k, v]) =>
+                `<tr><td data-label="Key"><code>${k}</code></td><td data-label="Value"><code>${v}</code></td></tr>`
+            ).join('');
+            html += `<details class="detail-section"><summary>Environment (${entries.length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+        }
+        return html;
     },
 
     async refreshJobDetail(jobId) {
         const job = this.jobs.find(j => j.name === jobId);
-        if (!job) {
-            this.closeJobDetail();
-            return;
-        }
+        if (!job) { this.closeJobDetail(); return; }
 
-        // Job info sections
-        const info = document.getElementById('jobDetailInfo');
-        let html = '';
-
-        // Tags row
-        const tags = [];
-        if (job.image) tags.push(`image: ${job.image}`);
-        if (job.driver) tags.push(job.driver);
-        const countLabel = job.count === -1 ? 'all agents' : (job.count || 1);
-        tags.push(`count: ${countLabel}`);
-        if (job.update_policy) tags.push(`update: ${job.update_policy}`);
-        if (job.cpu_shares) tags.push(`cpu: ${job.cpu_shares}`);
-        if (job.memory_limit) tags.push(`mem: ${this.formatBytes(job.memory_limit)}`);
-        if (job.max_restarts !== undefined && job.max_restarts !== null) tags.push(`restarts: ${job.max_restarts === -1 ? '∞' : job.max_restarts}`);
-        if (job.tags) for (const [k, v] of Object.entries(job.tags)) tags.push(`${k}=${v}`);
-        if (job.affinity) for (const [k, v] of Object.entries(job.affinity)) tags.push(`affinity: ${k}=${v}`);
-        html += `<div class="detail-tags">${tags.map(t => `<span class="detail-tag">${t}</span>`).join(' ')}</div>`;
-
-        // Command
-        if (job.command) {
-            html += `<details class="detail-section"><summary>Command</summary><pre class="detail-pre">${job.command.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></details>`;
-        }
-
-        // Artifacts
-        if (job.artifacts && job.artifacts.length > 0) {
-            const rows = job.artifacts.map(a => {
-                const match = a.match ? Object.entries(a.match).map(([k,v]) => `${k}=${v}`).join(', ') : '';
-                const name = a.filename || '';
-                return `<tr><td data-label="URL"><code>${a.url}</code></td><td data-label="Match">${match}</td><td data-label="Filename">${name}</td><td data-label="Extract">${a.extract || 'binary'}</td></tr>`;
-            }).join('');
-            html += `<details class="detail-section" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
-        }
-
-        // Volumes
-        if (job.volumes && Object.keys(job.volumes).length > 0) {
-            const rows = Object.entries(job.volumes).map(([host, task]) => `<tr><td data-label="Host"><code>${host}</code></td><td data-label="Task"><code>${task}</code></td></tr>`).join('');
-            html += `<details class="detail-section" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
-        }
-
-        // Environment
-        if (job.env && Object.keys(job.env).length > 0) {
-            const rows = Object.entries(job.env).sort().map(([k, v]) => `<tr><td data-label="Key"><code>${k}</code></td><td data-label="Value"><code>${v}</code></td></tr>`).join('');
-            html += `<details class="detail-section"><summary>Environment (${Object.keys(job.env).length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
-        }
-
-        // Preserve open/closed state of <details> elements
+        // Render info, preserving open/closed state of <details>
+        const info = $('jobDetailInfo');
         const openState = {};
         info.querySelectorAll('details').forEach(d => {
             const key = d.querySelector('summary')?.textContent;
             if (key) openState[key] = d.open;
         });
-
-        info.innerHTML = html;
-
+        info.innerHTML = this._renderJobInfo(job);
         info.querySelectorAll('details').forEach(d => {
             const key = d.querySelector('summary')?.textContent;
             if (key && key in openState) d.open = openState[key];
         });
 
         // Status badge
-        const placedPerJob = (this.status && this.status.placed) || {};
+        const placed = this.status?.placed || {};
         const expected = job.count === -1 ? (this.status?.agents || 0) : (job.count || 1);
-        const running = placedPerJob[job.name] || 0;
+        const running = placed[job.name] || 0;
         const ok = running >= expected;
-        const statusEl = document.getElementById('jobDetailStatus');
-        statusEl.textContent = `${running}/${expected}`;
-        statusEl.className = 'status ' + (ok ? 'running' : 'failed');
+        $('jobDetailStatus').textContent = `${running}/${expected}`;
+        $('jobDetailStatus').className = 'status ' + (ok ? 'running' : 'failed');
 
-        // Fetch tasks for this job
+        // Tasks
         try {
             const js = await this.fetchAPI(`/v1/jobs/${jobId}/status`);
             const tasks = [];
-            if (js && js.tasks_by_agent) {
+            if (js?.tasks_by_agent) {
                 for (const [agentId, agentTasks] of Object.entries(js.tasks_by_agent)) {
                     const agent = this.agents.find(a => a.id === agentId);
-                    for (const t of agentTasks) {
-                        tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
-                    }
+                    for (const t of agentTasks) tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
                 }
             }
             tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || a.id.localeCompare(b.id));
 
             const tbody = document.querySelector('#jobTasksTable tbody');
-            // If rows already exist, only update CPU/Mem cells in-place
-            const existingRows = tbody.querySelectorAll('tr[data-task-id]');
-            const existingMap = {};
-            existingRows.forEach(row => { existingMap[row.dataset.taskId] = row; });
+            const existing = {};
+            tbody.querySelectorAll('tr[data-task-id]').forEach(r => { existing[r.dataset.taskId] = r; });
 
-            if (tasks.length && Object.keys(existingMap).length > 0 &&
-                tasks.length === Object.keys(existingMap).length &&
-                tasks.every(t => existingMap[t.id])) {
-                // In-place update: only refresh CPU, Mem, restarts, and state
+            if (tasks.length && tasks.length === Object.keys(existing).length && tasks.every(t => existing[t.id])) {
                 for (const t of tasks) {
-                    const row = existingMap[t.id];
+                    const row = existing[t.id];
                     row.querySelector('.task-cpu').textContent = this.formatPercent(t.cpu_percent);
                     row.querySelector('.task-mem').textContent = this.formatPercent(t.mem_percent);
                     row.querySelector('.task-restarts').textContent = t.restart_count || 0;
-                    const stateEl = row.querySelector('.task-state');
-                    stateEl.className = 'status task-state ' + t.state;
-                    stateEl.textContent = t.state;
+                    const s = row.querySelector('.task-state');
+                    s.className = 'status task-state ' + t.state;
+                    s.textContent = t.state;
                 }
             } else {
-                // Full render (new tasks, different count, etc.)
-                tbody.innerHTML = tasks.length ? tasks.map(t => `
-                    <tr data-task-id="${t.id}">
-                        <td data-label="Task"><code>${t.id.slice(0, 8)}</code></td>
-                        <td data-label="Agent"><code>${t.agentId}</code></td>
-                        <td data-label="Ports">${this.formatPorts(t.ports)}</td>
-                        <td data-label="CPU" class="task-cpu">${this.formatPercent(t.cpu_percent)}</td>
-                        <td data-label="Mem" class="task-mem">${this.formatPercent(t.mem_percent)}</td>
-                        <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
-                        <td data-label="State"><span class="status task-state ${t.state}">${t.state}</span></td>
-                        <td class="mobile-actions">
-                            <button class="small" onclick="app.openLogs('${t.id}', '${t.agentEndpoint}')">Logs</button>
-                        </td>
-                    </tr>
-                `).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
+                tbody.innerHTML = tasks.length ? tasks.map(t => `<tr data-task-id="${t.id}">
+                    <td data-label="Task"><code>${t.id.slice(0, 8)}</code></td>
+                    <td data-label="Agent"><code>${t.agentId}</code></td>
+                    <td data-label="Ports">${this.formatPorts(t.ports)}</td>
+                    <td data-label="CPU" class="task-cpu">${this.formatPercent(t.cpu_percent)}</td>
+                    <td data-label="Mem" class="task-mem">${this.formatPercent(t.mem_percent)}</td>
+                    <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
+                    <td data-label="State"><span class="status task-state ${t.state}">${t.state}</span></td>
+                    <td class="mobile-actions"><button class="small" onclick="app.openLogs('${t.id}','${t.agentEndpoint}')">Logs</button></td>
+                </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
         } catch (err) {
             document.querySelector('#jobTasksTable tbody').innerHTML =
@@ -754,174 +574,130 @@ const app = {
     closeJobDetail() {
         clearInterval(this.detailTimer);
         this.activeJobId = null;
-        document.getElementById('jobDetailView').classList.add('hidden');
-        document.getElementById('jobsListView').classList.remove('hidden');
-        if (!this._skipPush) {
-            history.pushState(null, '', '#jobs');
-        }
+        $('jobDetailView').classList.add('hidden');
+        $('jobsListView').classList.remove('hidden');
+        if (!this._skipPush) history.pushState(null, '', '#jobs');
     },
+
+    // ── Log viewer ─────────────────────────────────
 
     openLogs(taskId, agentEndpoint) {
         this.currentTask = { taskId, agentEndpoint };
         this.currentStream = 'stdout';
-        document.getElementById('logTaskId').textContent = taskId.slice(0, 8);
-        document.getElementById('logOutput').textContent = '';
-        document.getElementById('logModal').classList.remove('hidden');
-        document.getElementById('btnStdout').classList.add('active');
-        document.getElementById('btnStderr').classList.remove('active');
+        $('logTaskId').textContent = taskId.slice(0, 8);
+        $('logOutput').textContent = '';
+        $('logModal').classList.remove('hidden');
+        $('btnStdout').classList.add('active');
+        $('btnStderr').classList.remove('active');
         this.startLogStream();
     },
 
     switchStream(stream) {
         this.currentStream = stream;
-        document.getElementById('btnStdout').classList.toggle('active', stream === 'stdout');
-        document.getElementById('btnStderr').classList.toggle('active', stream === 'stderr');
-        document.getElementById('logOutput').textContent = '';
+        $('btnStdout').classList.toggle('active', stream === 'stdout');
+        $('btnStderr').classList.toggle('active', stream === 'stderr');
+        $('logOutput').textContent = '';
         this.startLogStream();
     },
 
-    startLogStream() {
+    async startLogStream() {
         if (this.logAbort) this.logAbort.abort();
-
         const { taskId, agentEndpoint } = this.currentTask;
         const url = `${agentEndpoint}/logs/${taskId}/${this.currentStream}`;
         const abort = new AbortController();
         this.logAbort = abort;
+        const output = $('logOutput');
+        output.textContent += `Connecting to ${url}...\n`;
 
-        document.getElementById('logOutput').textContent += `Connecting to ${url}...\n`;
-
-        fetch(url, { headers: this.authHeaders(), signal: abort.signal })
-            .then(resp => {
-                if (!resp.ok || !resp.body) {
-                    document.getElementById('logOutput').textContent += `[Error: HTTP ${resp.status}]\n`;
-                    return;
+        try {
+            const resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
+            if (!resp.ok || !resp.body) { output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
+            output.textContent += '[Connected]\n';
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const line of lines) {
+                    if (line.startsWith('data:')) output.textContent += line.slice(5) + '\n';
                 }
-                document.getElementById('logOutput').textContent += '[Connected]\n';
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buf = '';
-                const read = () => {
-                    reader.read().then(({ done, value }) => {
-                        if (done) {
-                            document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
-                            return;
-                        }
-                        buf += decoder.decode(value, { stream: true });
-                        const lines = buf.split('\n');
-                        buf = lines.pop();
-                        const output = document.getElementById('logOutput');
-                        for (const line of lines) {
-                            if (line.startsWith('data:')) output.textContent += line.slice(5) + '\n';
-                        }
-                        output.scrollTop = output.scrollHeight;
-                        read();
-                    }).catch(() => {
-                        document.getElementById('logOutput').textContent += '\n[Connection closed]\n';
-                    });
-                };
-                read();
-            })
-            .catch(err => {
-                if (!abort.signal.aborted) {
-                    document.getElementById('logOutput').textContent += `\n[Error: ${err.message}]\n`;
-                }
-            });
+                output.scrollTop = output.scrollHeight;
+            }
+            output.textContent += '\n[Connection closed]\n';
+        } catch (e) {
+            if (!abort.signal.aborted) output.textContent += `\n[Error: ${e.message}]\n`;
+        }
     },
 
     closeLogs() {
         if (this.logAbort) { this.logAbort.abort(); this.logAbort = null; }
-        document.getElementById('logModal').classList.add('hidden');
+        $('logModal').classList.add('hidden');
         this.currentTask = null;
     },
 
-    navigateToHash() {
-        const hash = location.hash || '#agents';
-        this._skipPush = true;
-        this.closeLogs();
-        if (hash.startsWith('#jobs/')) {
-            const jobId = decodeURIComponent(hash.slice(6));
-            this.openJobDetail(jobId);
-        } else if (hash === '#jobs') {
-            this.showTab('jobs');
-        } else {
-            this.showTab('agents');
+    // ── Formatters ─────────────────────────────────
+
+    formatBytes(bytes) {
+        if (bytes == null) return '-';
+        if (bytes === 0) return '0';
+        for (const [unit, size] of [['GB', 1024 ** 3], ['MB', 1024 ** 2], ['KB', 1024]]) {
+            if (bytes >= size) return `${(bytes / size).toFixed(unit === 'GB' ? 1 : 0)} ${unit}`;
         }
-        this._skipPush = false;
+        return `${bytes} B`;
     },
 
-    formatPercent(val) {
-        if (val === undefined || val === null) return '-';
-        return val.toFixed(1) + '%';
-    },
+    formatPercent(val) { return val != null ? val.toFixed(1) + '%' : '-'; },
 
     formatPorts(ports) {
-        if (!ports || Object.keys(ports).length === 0) return '-';
+        if (!ports || !Object.keys(ports).length) return '-';
         return Object.entries(ports).map(([k, v]) => `${k}:${v}`).join(', ');
     },
 
     formatAttributes(attrs) {
-        if (!attrs || Object.keys(attrs).length === 0) return '';
+        if (!attrs || !Object.keys(attrs).length) return '';
         return Object.keys(attrs).sort().map(k => `${k}=${attrs[k]}`).join('\n');
     },
 
     formatJobTooltip(job) {
         const parts = [];
-        if (job.affinity && Object.keys(job.affinity).length > 0) {
-            parts.push('Affinity: ' + Object.keys(job.affinity).sort().map(k => `${k}=${job.affinity[k]}`).join(', '));
-        }
-        if (job.artifacts && job.artifacts.length > 0) {
-            job.artifacts.forEach(a => {
-                const match = a.match && Object.keys(a.match).length > 0
-                    ? Object.keys(a.match).sort().map(k => `${k}=${a.match[k]}`).join(',') + ' \u2192 '
-                    : '';
+        if (job.affinity && Object.keys(job.affinity).length)
+            parts.push('Affinity: ' + Object.entries(job.affinity).sort().map(([k,v]) => `${k}=${v}`).join(', '));
+        if (job.artifacts?.length) {
+            for (const a of job.artifacts) {
+                const match = a.match && Object.keys(a.match).length
+                    ? Object.entries(a.match).sort().map(([k,v]) => `${k}=${v}`).join(',') + ' → ' : '';
                 parts.push('Artifact: ' + match + a.url);
-            });
+            }
         }
         if (job.image) parts.push('Image: ' + job.image);
-        if (job.tags && Object.keys(job.tags).length > 0) {
-            parts.push('Tags: ' + Object.keys(job.tags).sort().map(k => `${k}=${job.tags[k]}`).join(', '));
-        }
+        if (job.tags && Object.keys(job.tags).length)
+            parts.push('Tags: ' + Object.entries(job.tags).sort().map(([k,v]) => `${k}=${v}`).join(', '));
         return parts.join('\n');
     },
 
-    truncate(str, len) {
-        if (!str) return '';
-        return str.length > len ? str.slice(0, len) + '...' : str;
-    }
+    _esc(str) { return str.replace(/&/g, '&amp;').replace(/</g, '&lt;'); },
 };
 
 // Keyboard shortcuts
-document.getElementById('clusterApiKey').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') app.addClusterFromForm();
+$('clusterApiKey').addEventListener('keypress', e => { if (e.key === 'Enter') app.addClusterFromForm(); });
+$('clusterEndpoint').addEventListener('keypress', e => { if (e.key === 'Enter') $('clusterApiKey').focus(); });
+$('clusterName').addEventListener('keypress', e => { if (e.key === 'Enter') $('clusterEndpoint').focus(); });
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { app.closeLogs(); app.hideAddCluster(); if (app.activeJobId) app.closeJobDetail(); }
 });
-document.getElementById('clusterEndpoint').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') document.getElementById('clusterApiKey').focus();
-});
-document.getElementById('clusterName').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') document.getElementById('clusterEndpoint').focus();
-});
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        app.closeLogs();
-        app.hideAddCluster();
-        if (app.activeJobId) app.closeJobDetail();
-    }
-});
-
-// Browser history
 window.addEventListener('popstate', () => app.navigateToHash());
 
-// Initial load
+// Init
 app.loadClusters();
 app.renderClusterTabs();
 if (app.clusters.length) {
     app.connect();
-    // Restore view from URL hash (bookmarks, refresh)
-    if (location.hash) {
-        app.navigateToHash();
-    } else {
-        history.replaceState(null, '', '#agents');
-    }
+    if (location.hash) app.navigateToHash();
+    else history.replaceState(null, '', '#agents');
 } else {
     app.showAddCluster();
 }
