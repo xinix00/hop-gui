@@ -23,11 +23,19 @@ const app = {
     capacityByEndpoint: {},
     clusters: [],
     activeCluster: 0,
+    connectedEndpoint: null, // endpoint with active SSE
+    _poolEndpoints: [],      // known agent endpoints for failover
+    _poolIdx: 0,             // rotation index during failover
+    fallbackTimer: null,     // polling when SSE is down
 
-    getEndpoint() {
+    getConfiguredEndpoint() {
         const c = this.clusters[this.activeCluster];
         const ep = c ? c.endpoint : 'localhost:8080';
         return ep.startsWith('http') ? ep : 'http://' + ep;
+    },
+
+    getEndpoint() {
+        return this.connectedEndpoint || this.getConfiguredEndpoint();
     },
 
     getApiKey() {
@@ -81,6 +89,10 @@ const app = {
         this.jobs = [];
         this.capacityByEndpoint = {};
         this.activeJobId = null;
+        this.connectedEndpoint = null;
+        this._poolIdx = 0;
+        this._stopFallbackPoll();
+        this._loadPool();
         this.connectSSE();
     },
 
@@ -112,6 +124,9 @@ const app = {
         this.status = null;
         this.jobs = [];
         this.capacityByEndpoint = {};
+        this.connectedEndpoint = null;
+        this._poolIdx = 0;
+        this._poolEndpoints = [];
         this.connectSSE();
     },
 
@@ -131,7 +146,11 @@ const app = {
             this.status = null;
             this.jobs = [];
             this.capacityByEndpoint = {};
+            this.connectedEndpoint = null;
+            this._poolIdx = 0;
+            this._stopFallbackPoll();
             if (this.clusters.length) {
+                this._loadPool();
                 this.connectSSE();
             } else {
                 this.disconnectSSE();
@@ -192,11 +211,12 @@ const app = {
             }
             const tasksStr = cap ? cap.tasks_running : '-';
             const attrTitle = cap ? this.formatAttributes(cap.attributes) : '';
+            const isConn = a.endpoint === this.connectedEndpoint;
             return `
                 <tr>
                     <td data-label="ID"><code${attrTitle ? ` data-tooltip="${attrTitle}"` : ''}>${a.id}</code></td>
                     <td data-label="Version"><span class="version">${a.version || 'unknown'}</span></td>
-                    <td data-label="Endpoint"><code>${a.endpoint}</code></td>
+                    <td data-label="Endpoint"><code>${a.endpoint}</code>${isConn ? ' <span class="connected-dot">●</span>' : ''}</td>
                     <td data-label="CPU">${cpuStr}</td>
                     <td data-label="Memory">${memStr}</td>
                     <td data-label="Tasks">${tasksStr}</td>
@@ -205,7 +225,69 @@ const app = {
     },
 
     connect() {
+        this._loadPool();
         this.connectSSE();
+    },
+
+    // ── Agent pool for SSE failover ────────────────
+
+    _buildEndpointList() {
+        const configured = this.getConfiguredEndpoint();
+        const seen = new Set([configured]);
+        const list = [configured];
+        for (const ep of this._poolEndpoints) {
+            const norm = ep.startsWith('http') ? ep : 'http://' + ep;
+            if (!seen.has(norm)) { seen.add(norm); list.push(norm); }
+        }
+        return list;
+    },
+
+    _updatePool() {
+        this._poolEndpoints = this.agents.map(a => a.endpoint).filter(Boolean);
+        const c = this.clusters[this.activeCluster];
+        if (c) {
+            try { localStorage.setItem(`easyrun-pool-${c.name}`, JSON.stringify(this._poolEndpoints)); }
+            catch (e) { /* ignore */ }
+        }
+    },
+
+    _loadPool() {
+        this._poolEndpoints = [];
+        const c = this.clusters[this.activeCluster];
+        if (!c) return;
+        try {
+            const stored = localStorage.getItem(`easyrun-pool-${c.name}`);
+            if (stored) this._poolEndpoints = JSON.parse(stored);
+        } catch (e) { /* ignore */ }
+    },
+
+    _startFallbackPoll() {
+        if (this.fallbackTimer) return;
+        this.fallbackTimer = setInterval(() => this.refresh(), 10000);
+    },
+
+    _stopFallbackPoll() {
+        if (this.fallbackTimer) {
+            clearInterval(this.fallbackTimer);
+            this.fallbackTimer = null;
+        }
+    },
+
+    _tryNextEndpoint() {
+        this._poolIdx++;
+        const endpoints = this._buildEndpointList();
+        const total = endpoints.length;
+        if (this._poolIdx >= total) {
+            this.setSseStatus(false, `All ${total} agent(s) unreachable — retrying in 10s`);
+            this._poolIdx = 0;
+            this._startFallbackPoll();
+            setTimeout(() => this.connectSSE(), 10000);
+        } else {
+            const next = endpoints[this._poolIdx].replace(/^https?:\/\//, '');
+            this.setSseStatus(false, `Trying ${next}... (${this._poolIdx + 1}/${total})`);
+            this._startFallbackPoll();
+            setTimeout(() => this.connectSSE(), 1000);
+        }
     },
 
     disconnectSSE() {
@@ -230,14 +312,23 @@ const app = {
     connectSSE() {
         this.disconnectSSE();
 
+        const endpoints = this._buildEndpointList();
+        if (!endpoints.length) return;
+
+        const idx = this._poolIdx % endpoints.length;
+        const endpoint = endpoints[idx];
+
         const abort = new AbortController();
         this.clusterSSE = abort;
 
-        const url = this.getEndpoint() + '/v1/events';
+        const url = endpoint + '/v1/events';
         fetch(url, { headers: this.authHeaders(), signal: abort.signal })
             .then(resp => {
                 if (!resp.ok || !resp.body) throw new Error(httpStatusMessage(resp.status));
+                this.connectedEndpoint = endpoint;
+                this._poolIdx = 0;
                 this.setSseStatus(true);
+                this._stopFallbackPoll();
                 this.refresh();
                 const reader = resp.body.getReader();
                 const decoder = new TextDecoder();
@@ -264,19 +355,13 @@ const app = {
                         }
                         read();
                     }).catch(err => {
-                        if (!abort.signal.aborted) {
-                            this.setSseStatus(false, `SSE error: ${err.message} — retrying in 5s`);
-                            setTimeout(() => this.connectSSE(), 5000);
-                        }
+                        if (!abort.signal.aborted) this._tryNextEndpoint();
                     });
                 };
                 read();
             })
             .catch(err => {
-                if (!abort.signal.aborted) {
-                    this.setSseStatus(false, `SSE failed: ${err.message} — retrying in 5s`);
-                    setTimeout(() => this.connectSSE(), 5000);
-                }
+                if (!abort.signal.aborted) this._tryNextEndpoint();
             });
     },
 
@@ -367,6 +452,9 @@ const app = {
             this.agents = agents;
             this.status = status;
             this.jobs = jobs;
+
+            // Update agent pool for SSE failover + cache
+            this._updatePool();
 
             document.getElementById('agentCount').textContent = status.agents;
             document.getElementById('totalPlaced').textContent = status.total_placed;
