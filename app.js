@@ -218,7 +218,14 @@ const app = {
             const resp = await fetch(endpoint + '/v1/events', {
                 headers: this.authHeaders(), signal: abort.signal
             });
-            if (!resp.ok || !resp.body) throw new Error(httpStatusMessage(resp.status));
+            if (!resp.ok || !resp.body) {
+                // Agent is reachable but returned an error — don't failover,
+                // show the specific error and retry the same endpoint
+                this.setSseStatus(false, httpStatusMessage(resp.status));
+                this._startFallbackPoll();
+                setTimeout(() => this.connectSSE(), 10000);
+                return;
+            }
 
             this.connectedEndpoint = endpoint;
             this._poolIdx = 0;
