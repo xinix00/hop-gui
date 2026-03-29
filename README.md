@@ -1,6 +1,6 @@
-# easyrun-gui
+# hop-gui
 
-Simple web dashboard for easyrun.
+Simple web dashboard for hop.
 
 ## Usage
 
@@ -21,4 +21,4 @@ python3 -m http.server 3000
 
 ## Note
 
-For CORS to work, the browser needs to be able to reach the easyrun agent directly.
+For CORS to work, the browser needs to be able to reach the hop agent directly.

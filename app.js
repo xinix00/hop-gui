@@ -35,17 +35,17 @@ const app = {
 
     loadClusters() {
         try {
-            const stored = localStorage.getItem('easyrun-clusters');
+            const stored = localStorage.getItem('hop-clusters');
             if (stored) this.clusters = JSON.parse(stored);
         } catch (e) { /* ignore */ }
         if (!this.clusters.length) this.clusters = [];
-        const active = localStorage.getItem('easyrun-active-cluster');
+        const active = localStorage.getItem('hop-active-cluster');
         this.activeCluster = active !== null ? Math.min(Number(active), this.clusters.length - 1) : 0;
     },
 
     saveClusters() {
-        localStorage.setItem('easyrun-clusters', JSON.stringify(this.clusters));
-        localStorage.setItem('easyrun-active-cluster', String(this.activeCluster));
+        localStorage.setItem('hop-clusters', JSON.stringify(this.clusters));
+        localStorage.setItem('hop-active-cluster', String(this.activeCluster));
     },
 
     renderClusterTabs() {
@@ -152,7 +152,7 @@ const app = {
         this._poolEndpoints = this.agents.map(a => a.endpoint).filter(Boolean);
         const c = this.clusters[this.activeCluster];
         if (c) {
-            try { localStorage.setItem(`easyrun-pool-${c.name}`, JSON.stringify(this._poolEndpoints)); }
+            try { localStorage.setItem(`hop-pool-${c.name}`, JSON.stringify(this._poolEndpoints)); }
             catch (e) { /* ignore */ }
         }
     },
@@ -162,7 +162,7 @@ const app = {
         const c = this.clusters[this.activeCluster];
         if (!c) return;
         try {
-            const stored = localStorage.getItem(`easyrun-pool-${c.name}`);
+            const stored = localStorage.getItem(`hop-pool-${c.name}`);
             if (stored) this._poolEndpoints = JSON.parse(stored);
         } catch (e) { /* ignore */ }
     },
