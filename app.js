@@ -130,17 +130,9 @@ const app = {
 
     async fetchAgentCapacity(agentId, endpoint) {
         try {
-            const resp = await fetch(`${endpoint}/capacity`, { headers: this.authHeaders() });
-            if (resp.ok) {
-                this.capacityByEndpoint[endpoint] = await resp.json();
-                return;
-            }
-        } catch (e) { /* agent might not be reachable */ }
-        // Fallback to fetch via the leader relay
-        try {
             const resp = await fetch(`${this.getEndpoint()}/v1/agents/${agentId}/capacity`, { headers: this.authHeaders() });
             if (resp.ok) this.capacityByEndpoint[endpoint] = await resp.json();
-        } catch (e) { /* both failed */ }
+        } catch (e) { /* failed */ }
     },
 
     // ── SSE + failover pool ────────────────────────
@@ -617,28 +609,16 @@ const app = {
 
     async startLogStream() {
         if (this.logAbort) this.logAbort.abort();
-        const { taskId, agentId, agentEndpoint } = this.currentTask;
-        let url = `${agentEndpoint}/logs/${taskId}/${this.currentStream}`;
+        const { taskId, agentId } = this.currentTask;
+        const url = `${this.getEndpoint()}/v1/agents/${agentId}/logs/${taskId}/${this.currentStream}`;
         const abort = new AbortController();
         this.logAbort = abort;
         const output = $('logOutput');
-        output.textContent += `Connecting to ${url}...\n`;
+        output.textContent += `Connecting via leader relay...\n`;
 
         try {
-            let resp;
-            try {
-                resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            } catch (e) {
-                if (abort.signal.aborted) throw e;
-                const fallbackUrl = `${this.getEndpoint()}/v1/agents/${agentId}/logs/${taskId}/${this.currentStream}`;
-                output.textContent += `Direct connection failed. Retrying via leader relay...\n`;
-                url = fallbackUrl;
-                resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            }
-
-            if (!resp.body) { output.textContent += `[Error: response body is null]\n`; return; }
+            const resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
+            if (!resp.ok || !resp.body) { output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
             output.textContent += '[Connected]\n';
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
