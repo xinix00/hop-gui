@@ -128,11 +128,19 @@ const app = {
         return resp.status === 204 ? null : resp.json();
     },
 
-    async fetchAgentCapacity(endpoint) {
+    async fetchAgentCapacity(agentId, endpoint) {
         try {
             const resp = await fetch(`${endpoint}/capacity`, { headers: this.authHeaders() });
-            if (resp.ok) this.capacityByEndpoint[endpoint] = await resp.json();
+            if (resp.ok) {
+                this.capacityByEndpoint[endpoint] = await resp.json();
+                return;
+            }
         } catch (e) { /* agent might not be reachable */ }
+        // Fallback to fetch via the leader relay
+        try {
+            const resp = await fetch(`${this.getEndpoint()}/v1/agents/${agentId}/capacity`, { headers: this.authHeaders() });
+            if (resp.ok) this.capacityByEndpoint[endpoint] = await resp.json();
+        } catch (e) { /* both failed */ }
     },
 
     // ── SSE + failover pool ────────────────────────
@@ -304,7 +312,7 @@ const app = {
             $('statsContainer').classList.toggle('settling', !!status.settling);
             $('settleBadge').classList.toggle('active', !!status.settling);
 
-            for (const a of agents) this.fetchAgentCapacity(a.endpoint).then(() => this.renderAgentsTable());
+            for (const a of agents) this.fetchAgentCapacity(a.id, a.endpoint).then(() => this.renderAgentsTable());
             this.renderAgentsTable();
             this.renderJobsTable(jobs, status.placed || {}, status.agents);
             if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
@@ -569,7 +577,7 @@ const app = {
                     <td data-label="Mem" class="task-mem">${this.formatPercent(t.mem_percent)}</td>
                     <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
                     <td data-label="State"><span class="status task-state ${t.state}">${t.state}</span></td>
-                    <td class="mobile-actions"><button class="small" onclick="app.openLogs('${t.id}','${t.agentEndpoint}')">Logs</button></td>
+                    <td class="mobile-actions"><button class="small" onclick="app.openLogs('${t.id}','${t.agentId}','${t.agentEndpoint}')">Logs</button></td>
                 </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
         } catch (err) {
@@ -588,8 +596,8 @@ const app = {
 
     // ── Log viewer ─────────────────────────────────
 
-    openLogs(taskId, agentEndpoint) {
-        this.currentTask = { taskId, agentEndpoint };
+    openLogs(taskId, agentId, agentEndpoint) {
+        this.currentTask = { taskId, agentId, agentEndpoint };
         this.currentStream = 'stdout';
         $('logTaskId').textContent = taskId.slice(0, 8);
         $('logOutput').textContent = '';
@@ -609,16 +617,28 @@ const app = {
 
     async startLogStream() {
         if (this.logAbort) this.logAbort.abort();
-        const { taskId, agentEndpoint } = this.currentTask;
-        const url = `${agentEndpoint}/logs/${taskId}/${this.currentStream}`;
+        const { taskId, agentId, agentEndpoint } = this.currentTask;
+        let url = `${agentEndpoint}/logs/${taskId}/${this.currentStream}`;
         const abort = new AbortController();
         this.logAbort = abort;
         const output = $('logOutput');
         output.textContent += `Connecting to ${url}...\n`;
 
         try {
-            const resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
-            if (!resp.ok || !resp.body) { output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
+            let resp;
+            try {
+                resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            } catch (e) {
+                if (abort.signal.aborted) throw e;
+                const fallbackUrl = `${this.getEndpoint()}/v1/agents/${agentId}/logs/${taskId}/${this.currentStream}`;
+                output.textContent += `Direct connection failed. Retrying via leader relay...\n`;
+                url = fallbackUrl;
+                resp = await fetch(url, { headers: this.authHeaders(), signal: abort.signal });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            }
+
+            if (!resp.body) { output.textContent += `[Error: response body is null]\n`; return; }
             output.textContent += '[Connected]\n';
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
