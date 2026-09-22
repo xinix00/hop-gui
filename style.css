@@ -28,21 +28,25 @@
 @layer application {
   .skip-link { position: fixed; top: -100px; left: 16px; z-index: 100; }
   .skip-link:focus { top: 16px; }
-  .app-header { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px max(24px, calc((100vw - 1376px) / 2)); border-bottom: 1px solid var(--edge); background: var(--workspace); }
+  .app-layout { display: grid; grid-template-columns: 260px minmax(0,1fr); min-height: 100dvh; }
+  .sidebar { position: sticky; top: 0; display: flex; flex-direction: column; gap: 28px; height: 100dvh; min-width: 0; padding: 28px 20px 20px; border-right: 1px solid var(--edge); background: var(--workspace); }
+  .sidebar-navigation { display: grid; gap: 12px; min-height: 0; overflow-y: auto; padding: 4px; margin: -4px; }
+  .sidebar-navigation .t-nav > .t-choice { min-height: 48px; }
+  .sidebar-navigation .t-nav-label { white-space: normal; overflow-wrap: anywhere; }
+  .sidebar-foot { display: grid; gap: 16px; margin-top: auto; padding-top: 20px; border-top: 1px solid var(--edge); }
+  .appearance-trigger { justify-self: start; }
   .brand { display: flex; align-items: center; gap: 14px; color: var(--text); text-decoration: none; font-size: 25px; font-weight: 700; line-height: 1.2; letter-spacing: -.6px; }
   .brand-symbol { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; background: var(--t-selected-fill); color: var(--accent-light); font: 700 18px var(--mono); white-space: nowrap; }
   .brand-caption { display: block; font-size: 8px; letter-spacing: 1.9px; color: var(--muted); font-weight: 500; margin-top: 5px; }
-  .header-actions { display: flex; align-items: center; gap: 24px; }
   .updated { font-size: 11px; color: var(--muted); }
   .updated time { margin-left: 5px; font-variant-numeric: tabular-nums; }
-  .workspace { max-width: 1424px; margin: auto; padding: 24px 24px 32px; min-width: 0; }
-  .cluster-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid color-mix(in srgb,var(--edge) 40%,transparent); }
-  .cluster-selector { flex: 1; display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .workspace { width: 100%; max-width: 1500px; margin: 0 auto; padding: 36px clamp(20px,3vw,48px) 32px; min-width: 0; }
   .eyebrow { color: var(--muted); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; font-weight: 600; }
-  .cluster-tabs { flex: 1; }
-  #clusterAddBtn { flex: 0 0 auto; }
+  #clusterAddBtn { justify-self: start; }
   .cluster-empty { font-size: 12px; color: var(--muted); }
-  .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 32px 0 24px; }
+  .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 0 0 28px; }
+  .page-heading > div { min-width: 0; }
+  .page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 16px; }
   .page-heading h1 { margin: 8px 0; font-size: clamp(26px, 3vw, 38px); line-height: 1.15; letter-spacing: -1px; overflow-wrap: anywhere; }
   .subtitle { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   .connection-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
@@ -114,7 +118,7 @@
   .detail-table { width: 100%; font-size: 12px; border-collapse: collapse; }
   .detail-table :is(th,td) { padding: 10px 14px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--edge); overflow-wrap: anywhere; }
   .detail-table th { color: var(--muted); }
-    .log-dialog { width: min(1100px,calc(100vw - 32px)); }
+  .log-dialog { width: min(1100px,calc(100vw - 32px)); }
   .log-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 20px; }
   .log-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   #logOutput { min-height: 220px; height: min(55vh,600px); padding: 20px; margin: 0; overflow: auto; background: var(--input); font: 12px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--edge); }
@@ -122,12 +126,17 @@
   .appearance-preview { display: grid; gap: 12px; }
   .page-footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-top: 24px; margin-top: 32px; border-top: 1px solid color-mix(in srgb,var(--edge) 40%,transparent); color: var(--muted); font-size: 11px; }
   [data-tooltip] { text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
-  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .cluster-selector > .eyebrow { display: none; } }
+  @media (max-width: 1100px) { .stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .page-heading { flex-wrap: wrap; } }
+  @media (max-width: 760px) {
+    .app-layout { grid-template-columns: minmax(0,1fr); }
+    .sidebar { position: static; height: auto; gap: 20px; padding: 20px; border-right: 0; border-bottom: 1px solid var(--edge); }
+    .sidebar-navigation { max-height: 45dvh; }
+    .sidebar-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  }
   @media (max-width: 620px) {
-    .app-header { padding: 16px; gap: 12px; } .header-actions { gap: 8px; } .updated { display: none; }
-    .workspace { padding: 20px 16px; } .cluster-bar { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
-    .cluster-selector { flex-basis: 100%; width: 100%; } .cluster-tabs { width: 100%; }
-    .page-heading { display: block; margin-top: 24px; } .connection-state { margin-top: 12px; }
+    .workspace { padding: 24px 16px; }
+    .page-heading { display: block; }
+    .page-actions { justify-content: flex-start; margin-top: 16px; }
     .stats { gap: 10px; } .stat { padding: 14px; } .stat dd { font-size: 28px; } .stat-endpoint code { font-size: 12px; }
     .stat-description { font-size: 10px; } .panel-note { display: none; }
     .t-table { min-width: 0; } .t-table > thead { display: none; }

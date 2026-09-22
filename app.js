@@ -81,14 +81,20 @@ const app = {
         localStorage.setItem('hop-active-cluster', String(this.activeCluster));
     },
 
-    renderClusterTabs() {
-        $('clusterTabs').innerHTML = this.clusters.map((c, i) =>
-            `<div class="t-tab-item"><button type="button" class="t-tab" aria-pressed="${i === this.activeCluster}" data-cluster="${i}">${this._esc(c.name)}</button><button type="button" class="t-tab-close" data-remove-cluster="${i}" aria-label="Remove ${this._esc(c.name)}">${icon('close')}</button></div>`
-        ).join('') || '<span class="cluster-empty">No saved clusters yet</span>';
+    renderClusterMenu() {
+        $('clusterMenu').innerHTML = this.clusters.map((c, i) =>
+            `<button type="button" class="t-choice" aria-pressed="${i === this.activeCluster}" data-cluster="${i}" title="${this._esc(c.endpoint)}">${icon('dns')}<span class="t-nav-label">${this._esc(c.name)}</span></button>`
+        ).join('') || '<span class="cluster-empty">No saved servers yet</span>';
         const cluster = this.clusters[this.activeCluster];
         $('clusterHeading').textContent = cluster?.name || 'Cluster overview';
         $('clusterDescription').textContent = cluster ? `Agents, capacity and workloads at ${cluster.endpoint}.` : 'Connect a cluster to see your agents, capacity and running jobs.';
         $('newJobButton').disabled = !cluster;
+        const remove = $('removeClusterButton');
+        remove.hidden = !cluster;
+        if (cluster) {
+            remove.dataset.removeCluster = String(this.activeCluster);
+            remove.setAttribute('aria-label', `Remove ${cluster.name} from saved servers`);
+        } else delete remove.dataset.removeCluster;
     },
 
     _resetState() {
@@ -128,7 +134,7 @@ const app = {
         if (index === this.activeCluster) return;
         this.activeCluster = index;
         this.saveClusters();
-        this.renderClusterTabs();
+        this.renderClusterMenu();
         document.querySelector(`[data-cluster="${index}"]`)?.focus({ preventScroll: true });
         this._resetState();
         this.activeJobId = null;
@@ -156,7 +162,7 @@ const app = {
         this.clusters.push(cluster);
         this.activeCluster = this.clusters.length - 1;
         this.saveClusters();
-        this.renderClusterTabs();
+        this.renderClusterMenu();
         this.hideAddCluster();
         this._resetState();
         this._poolEndpoints = [];
@@ -193,7 +199,7 @@ const app = {
         if (this.activeCluster >= this.clusters.length) this.activeCluster = Math.max(0, this.clusters.length - 1);
         else if (index < this.activeCluster) this.activeCluster--;
         this.saveClusters();
-        this.renderClusterTabs();
+        this.renderClusterMenu();
         document.querySelector(`[data-cluster="${this.activeCluster}"]`)?.focus({ preventScroll: true });
         if (wasActive) {
             this._resetState();
@@ -865,11 +871,11 @@ const app = {
 };
 
 // Keep native forms, keyboard navigation and dialogs usable after live rerenders.
-$('clusterTabs').addEventListener('keydown', event => {
+$('clusterMenu').addEventListener('keydown', event => {
     const button = event.target.closest('[data-cluster]');
     if (!button) return;
     const index = Number(button.dataset.cluster), count = app.clusters.length;
-    const next = { ArrowRight: (index + 1) % count, ArrowLeft: (index + count - 1) % count, Home: 0, End: count - 1 }[event.key];
+    const next = { ArrowDown: (index + 1) % count, ArrowUp: (index + count - 1) % count, Home: 0, End: count - 1 }[event.key];
     if (next === undefined) return;
     event.preventDefault();
     app.switchCluster(next);
@@ -906,7 +912,7 @@ window.addEventListener('popstate', () => app.navigateToHash());
 
 // Init
 app.loadClusters();
-app.renderClusterTabs();
+app.renderClusterMenu();
 if (app.clusters.length) {
     app.connect();
     if (location.hash) app.navigateToHash();

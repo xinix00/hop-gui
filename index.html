@@ -17,51 +17,29 @@
     <a class="skip-link t-action" href="#main">
       Skip to dashboard
     </a>
-    <header class="app-header">
-      <a class="brand" href="#agents" aria-label="Hop dashboard">
-        <span class="brand-symbol" aria-hidden="true">
-          (\(\
-        </span>
-        <span>
-          Hop
-          <span class="brand-caption">
-            CLUSTER DASHBOARD
-          </span>
-        </span>
-      </a>
-      <div class="header-actions">
-        <span class="updated">
-          Updated
-          <time id="lastUpdate">
-            —
-          </time>
-        </span>
-        <button class="t-action t-action--neutral" type="button" data-open-appearance>
-          <span class="material-symbols-outlined t-icon" aria-hidden="true">
-            palette
-          </span>
-          <span class="button-label">
-            Appearance
-          </span>
-        </button>
-      </div>
-    </header>
-    <main id="main" class="workspace" tabindex="-1">
-      <section class="cluster-bar" aria-label="Cluster selection">
-        <div class="cluster-selector">
-          <span class="eyebrow">
-            Clusters
-          </span>
-          <nav class="cluster-tabs t-tab-strip" id="clusterTabs" aria-label="Saved clusters">
-          </nav>
+    <div class="app-layout">
+      <aside class="sidebar" aria-label="Server navigation">
+        <a class="brand" href="#agents" aria-label="Hop dashboard">
+          <span class="brand-symbol" aria-hidden="true">(\(\</span>
+          <span>Hop<span class="brand-caption">CLUSTER DASHBOARD</span></span>
+        </a>
+        <div class="sidebar-navigation">
+          <h2 class="eyebrow">Servers</h2>
+          <nav class="t-nav" id="clusterMenu" aria-label="Saved servers"></nav>
+          <button class="t-action" id="clusterAddBtn" type="button" onclick="app.showAddCluster()">
+            <span class="material-symbols-outlined t-icon" aria-hidden="true">add</span>
+            New server
+          </button>
         </div>
-        <button class="t-action" id="clusterAddBtn" type="button" onclick="app.showAddCluster()">
-          <span class="material-symbols-outlined t-icon" aria-hidden="true">
-            add
-          </span>
-          Add cluster
-        </button>
-      </section>
+        <div class="sidebar-foot">
+          <button class="appearance-trigger t-action t-action--neutral" type="button" data-open-appearance>
+            <span class="material-symbols-outlined t-icon" aria-hidden="true">palette</span>
+            Appearance
+          </button>
+          <p class="updated">Updated <time id="lastUpdate">—</time></p>
+        </div>
+      </aside>
+      <main id="main" class="workspace" tabindex="-1">
       <div class="page-heading">
         <div>
           <p class="eyebrow">
@@ -74,9 +52,12 @@
             Connect a cluster to see your agents, capacity and running jobs.
           </p>
         </div>
-        <span class="connection-state" id="connectionState" role="status">
-          No cluster connected
-        </span>
+        <div class="page-actions">
+          <span class="connection-state" id="connectionState" role="status">No cluster connected</span>
+          <button id="removeClusterButton" class="t-action t-action--neutral t-icon-button" type="button" hidden title="Remove this server from saved servers" aria-label="Remove this server from saved servers">
+            <span class="material-symbols-outlined t-icon" aria-hidden="true">delete</span>
+          </button>
+        </div>
       </div>
       <dl class="stats" id="statsContainer" aria-label="Cluster summary">
         <div class="stat t-card">
@@ -362,14 +343,9 @@
           </span>
           Cluster dashboard
         </span>
-        <button class="t-action t-action--neutral" type="button" data-open-appearance>
-          <span class="material-symbols-outlined t-icon" aria-hidden="true">
-            palette
-          </span>
-          Make it yours
-        </button>
       </footer>
-    </main>
+      </main>
+    </div>
     <dialog id="clusterForm" class="t-dialog" aria-labelledby="clusterFormTitle">
       <form id="addClusterForm">
         <div class="t-dialog-head">

@@ -10,7 +10,7 @@ Open `index.html`, or serve this directory:
 python3 -m http.server 3000
 ```
 
-Open `http://localhost:3000`, choose **Add cluster**, and enter a name, agent address and optional API key. The browser must be able to reach the agent directly, with CORS allowed by the agent. Authenticated requests use Web Crypto, so serve the dashboard on localhost or HTTPS.
+Open `http://localhost:3000`, choose **New server** below the server list, and enter a name, agent address and optional API key. The browser must be able to reach the agent directly, with CORS allowed by the agent. Authenticated requests use Web Crypto, so serve the dashboard on localhost or HTTPS.
 
 No build step, CDN or frontend framework is required. Publish the complete directory, including `vendor/`.
 
@@ -26,7 +26,7 @@ No build step, CDN or frontend framework is required. Publish the complete direc
 
 ## Appearance
 
-Use **Appearance** in the header or **Make it yours** in the footer. Choose these independently:
+Use **Appearance** at the bottom of the left sidebar, in the same place as EasyACP. Choose these independently:
 
 - Theme: Senior / Classic 95, Medior / Glossy 08, Junior / Tactile Matte.
 - Accent colour: purple, red, blue, petrol or green.
@@ -40,7 +40,12 @@ Glossy 08, purple and dark are the defaults. Appearance is stored as `hop-appear
 
 `appearance.js` manages the picker and theme tokens. `app.js` handles the Hop API and renders the same shared components for dynamic content.
 
-Cluster tabs use the shared `t-tab-*` components: one surface, a horizontal
-selection line and a separate integrated close target. Icon actions are at
-least 48 × 48 px; tags keep the shared 52 px minimum height. Tables vertically
-center text, status labels and actions. Do not override these sizes locally.
+Saved servers use the shared vertical `t-nav` / `t-choice` navigation in the
+left sidebar. **New server** sits immediately below the list; **Appearance**
+sits in the sidebar footer. Up/Down and Home/End navigate the server list.
+The dashboard's delete icon removes the selected server from this browser,
+after confirmation; its workloads keep running. On narrow screens the sidebar
+stacks above the dashboard, keeping the server list vertical.
+
+Icon actions remain at least 48 × 48 px; tags keep the shared 52 px minimum
+height and tables vertically center text, status labels and actions.
