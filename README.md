@@ -39,3 +39,8 @@ Glossy 08, purple and dark are the defaults. Appearance is stored as `hop-appear
 `style.css` handles Hop's layout. The material, controls, spinner, select and decision dialogs come from `vendor/`; see [vendor/README.md](vendor/README.md). Keep these shared files in sync with Haasstyle instead of recreating their visuals in app-specific CSS.
 
 `appearance.js` manages the picker and theme tokens. `app.js` handles the Hop API and renders the same shared components for dynamic content.
+
+Cluster tabs use the shared `t-tab-*` components: one surface, a horizontal
+selection line and a separate integrated close target. Icon actions are at
+least 48 × 48 px; tags keep the shared 52 px minimum height. Tables vertically
+center text, status labels and actions. Do not override these sizes locally.

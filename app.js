@@ -83,7 +83,7 @@ const app = {
 
     renderClusterTabs() {
         $('clusterTabs').innerHTML = this.clusters.map((c, i) =>
-            `<div class="cluster-item"><button type="button" class="cluster-tab t-choice${i === this.activeCluster ? ' active' : ''}" aria-pressed="${i === this.activeCluster}" data-cluster="${i}">${this._esc(c.name)}</button><button type="button" class="cluster-tab-remove t-action t-action--neutral t-icon-button" data-remove-cluster="${i}" aria-label="Remove ${this._esc(c.name)}">${icon('close')}</button></div>`
+            `<div class="t-tab-item"><button type="button" class="t-tab" aria-pressed="${i === this.activeCluster}" data-cluster="${i}">${this._esc(c.name)}</button><button type="button" class="t-tab-close" data-remove-cluster="${i}" aria-label="Remove ${this._esc(c.name)}">${icon('close')}</button></div>`
         ).join('') || '<span class="cluster-empty">No saved clusters yet</span>';
         const cluster = this.clusters[this.activeCluster];
         $('clusterHeading').textContent = cluster?.name || 'Cluster overview';
@@ -129,6 +129,7 @@ const app = {
         this.activeCluster = index;
         this.saveClusters();
         this.renderClusterTabs();
+        document.querySelector(`[data-cluster="${index}"]`)?.focus({ preventScroll: true });
         this._resetState();
         this.activeJobId = null;
         this._stopFallbackPoll();
@@ -193,6 +194,7 @@ const app = {
         else if (index < this.activeCluster) this.activeCluster--;
         this.saveClusters();
         this.renderClusterTabs();
+        document.querySelector(`[data-cluster="${this.activeCluster}"]`)?.focus({ preventScroll: true });
         if (wasActive) {
             this._resetState();
             this._stopFallbackPoll();
@@ -504,7 +506,7 @@ const app = {
                 <td data-label="Prio">${prio}</td>
                 <td data-label="Name"><button type="button" class="job-link t-choice" data-open-job="${this._esc(job.name)}"${tip ? ` title="${this._esc(tip)}"` : ''}>${this._esc(job.name)}</button></td>
                 <td data-label="Running">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
-                <td data-label="Status" class="${ok ? 'status-ok' : 'status-degraded'}">${ok ? 'OK' : 'DEGRADED'}</td>
+                <td data-label="Status"><span class="t-tag t-supplement status ${ok ? 'running' : 'failed'}">${this._statusContent(ok ? 'OK' : 'DEGRADED')}</span></td>
                 <td class="mobile-actions"><button type="button" class="t-action t-action--danger" data-delete-job="${this._esc(job.name)}">${icon('delete')}Delete</button></td>
             </tr>`;
         }).join('');
@@ -691,8 +693,8 @@ const app = {
         const expected = job.count === -1 ? (this.status?.agents || 0) : (job.count || 1);
         const running = placed[job.name] || 0;
         const ok = running >= expected;
-        $('jobDetailStatus').textContent = `${running}/${expected}`;
-        $('jobDetailStatus').className = 'status ' + (ok ? 'running' : 'failed');
+        $('jobDetailStatus').innerHTML = this._statusContent(`${running}/${expected}`);
+        $('jobDetailStatus').className = 't-tag t-supplement status ' + (ok ? 'running' : 'failed');
 
         // Tasks
         try {
@@ -718,8 +720,8 @@ const app = {
                     row.querySelector('.task-mem').innerHTML = this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent));
                     row.querySelector('.task-restarts').textContent = t.restart_count || 0;
                     const s = row.querySelector('.task-state');
-                    s.className = 'status task-state ' + t.state;
-                    s.textContent = this.taskStateLabel(t);
+                    s.className = 't-tag t-supplement status task-state ' + t.state;
+                    s.innerHTML = this._statusContent(this.taskStateLabel(t));
                 }
             } else {
                 tbody.innerHTML = tasks.length ? tasks.map(t => `<tr data-task-id="${this._esc(t.id)}">
@@ -729,7 +731,7 @@ const app = {
                     <td data-label="CPU" class="task-cpu">${this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent))}</td>
                     <td data-label="Mem" class="task-mem">${this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent))}</td>
                     <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
-                    <td data-label="State"><span class="status task-state ${this._esc(t.state)}">${this._esc(this.taskStateLabel(t))}</span></td>
+                    <td data-label="State"><span class="t-tag t-supplement status task-state ${this._esc(t.state)}">${this._statusContent(this.taskStateLabel(t))}</span></td>
                     <td class="mobile-actions"><button type="button" class="t-action" data-log-task="${this._esc(t.id)}" data-log-agent="${this._esc(t.agentId)}" data-log-endpoint="${this._esc(t.agentEndpoint || '')}">${icon('terminal')}Logs</button></td>
                 </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
@@ -857,10 +859,22 @@ const app = {
         return parts.join('\n');
     },
 
+    _statusContent(text) { return `<span class="t-status-dot" aria-hidden="true"></span><span>${this._esc(text)}</span>`; },
+
     _esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c])); },
 };
 
 // Keep native forms, keyboard navigation and dialogs usable after live rerenders.
+$('clusterTabs').addEventListener('keydown', event => {
+    const button = event.target.closest('[data-cluster]');
+    if (!button) return;
+    const index = Number(button.dataset.cluster), count = app.clusters.length;
+    const next = { ArrowRight: (index + 1) % count, ArrowLeft: (index + count - 1) % count, Home: 0, End: count - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    app.switchCluster(next);
+    document.querySelector(`[data-cluster="${next}"]`)?.focus({ preventScroll: true });
+});
 $('addClusterForm').addEventListener('submit', event => { event.preventDefault(); app.addClusterFromForm(); });
 $('createJobForm').addEventListener('submit', async event => {
     event.preventDefault();
