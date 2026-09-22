@@ -1,4 +1,8 @@
 const $ = id => document.getElementById(id);
+const icon = name => `<span class="material-symbols-outlined t-icon" aria-hidden="true">${name}</span>`;
+const spinner = '<span class="t-spinner" aria-hidden="true"></span>';
+const notify = message => TactileDialog.notice(message, { title: 'Hop', confirmLabel: 'Close' });
+
 
 function httpStatusMessage(status) {
     switch (status) {
@@ -79,13 +83,16 @@ const app = {
 
     renderClusterTabs() {
         $('clusterTabs').innerHTML = this.clusters.map((c, i) =>
-            `<button class="cluster-tab${i === this.activeCluster ? ' active' : ''}" onclick="app.switchCluster(${i})">` +
-                `${c.name}<span class="cluster-tab-remove" onclick="event.stopPropagation(); app.removeCluster(${i})">×</span>` +
-            `</button>`
-        ).join('');
+            `<div class="cluster-item"><button type="button" class="cluster-tab t-choice${i === this.activeCluster ? ' active' : ''}" aria-pressed="${i === this.activeCluster}" data-cluster="${i}">${this._esc(c.name)}</button><button type="button" class="cluster-tab-remove t-action t-action--neutral t-icon-button" data-remove-cluster="${i}" aria-label="Remove ${this._esc(c.name)}">${icon('close')}</button></div>`
+        ).join('') || '<span class="cluster-empty">No saved clusters yet</span>';
+        const cluster = this.clusters[this.activeCluster];
+        $('clusterHeading').textContent = cluster?.name || 'Cluster overview';
+        $('clusterDescription').textContent = cluster ? `Agents, capacity and workloads at ${cluster.endpoint}.` : 'Connect a cluster to see your agents, capacity and running jobs.';
+        $('newJobButton').disabled = !cluster;
     },
 
     _resetState() {
+        this.closeLogs();
         // Bump the generation so replies from in-flight requests to the OLD
         // cluster are dropped instead of repainting stale data after a switch.
         this._gen = (this._gen || 0) + 1;
@@ -108,8 +115,9 @@ const app = {
         $('settleBadge').classList.remove('active');
         $('error').innerHTML = '';
         this.setSseStatus(true); // clear any stale SSE banner; connect will repopulate
-        document.querySelector('#agentsTable tbody').innerHTML = '<tr><td colspan="7" class="empty">Connecting to cluster…</td></tr>';
-        document.querySelector('#jobsTable tbody').innerHTML = '<tr><td colspan="6" class="empty">Connecting to cluster…</td></tr>';
+        const message = this.clusters.length ? `${spinner}Connecting to cluster…` : 'Add a cluster to get started.';
+        document.querySelector('#agentsTable tbody').innerHTML = `<tr><td colspan="7" class="empty">${message}</td></tr>`;
+        document.querySelector('#jobsTable tbody').innerHTML = `<tr><td colspan="6" class="empty">${message}</td></tr>`;
         clearInterval(this.detailTimer);
         this.activeJobId = null;
         $('jobDetailView').classList.add('hidden');
@@ -128,10 +136,10 @@ const app = {
         this.connectSSE();
     },
 
-    showAddCluster() { $('clusterForm').classList.remove('hidden'); $('clusterName').focus(); },
+    showAddCluster() { if (!$('clusterForm').open) $('clusterForm').showModal(); $('clusterName').focus(); },
 
     hideAddCluster() {
-        $('clusterForm').classList.add('hidden');
+        $('clusterForm').close();
         $('clusterName').value = '';
         $('clusterEndpoint').value = '';
         $('clusterApiKey').value = '';
@@ -174,8 +182,11 @@ const app = {
         return true;
     },
 
-    removeCluster(index) {
-        if (!confirm(`Remove cluster "${this.clusters[index].name}"?`)) return;
+    async removeCluster(index) {
+        const cluster = this.clusters[index];
+        if (!cluster || !await TactileDialog.confirm(`Remove cluster "${cluster.name}" from this browser? Its jobs keep running.`, { title: 'Remove cluster?', confirmLabel: 'Remove', cancelLabel: 'Cancel' })) return;
+        index = this.clusters.indexOf(cluster);
+        if (index < 0) return;
         const wasActive = index === this.activeCluster;
         this.clusters.splice(index, 1);
         if (this.activeCluster >= this.clusters.length) this.activeCluster = Math.max(0, this.clusters.length - 1);
@@ -186,7 +197,7 @@ const app = {
             this._resetState();
             this._stopFallbackPoll();
             if (this.clusters.length) { this._loadPool(); this.connectSSE(); }
-            else { this.disconnectSSE(); this.showAddCluster(); }
+            else { this.disconnectSSE(); this.setSseStatus(true); this.showAddCluster(); }
         }
     },
 
@@ -278,14 +289,19 @@ const app = {
     setSseStatus(ok, msg) {
         const el = $('sseStatus');
         if (!el) return;
-        el.className = ok ? 'sse-ok' : 'sse-error';
-        el.textContent = ok ? '' : (msg || 'SSE disconnected — retrying…');
+        el.className = ok ? 'sse-ok' : 'sse-error t-alert';
+        el.dataset.tone = 'warning';
+        el.textContent = ok ? '' : (msg || 'Live updates disconnected — retrying…');
+        const connected = ok && !!this.connectedEndpoint;
+        $('connectionState').classList.toggle('connected', connected);
+        $('connectionState').innerHTML = connected ? 'Live updates connected' : this.clusters.length ? `${spinner}Connecting to cluster…` : 'No cluster connected';
     },
 
     connect() { this._loadPool(); this.connectSSE(); },
 
     async connectSSE() {
         this.disconnectSSE();
+        if (!this.clusters.length) return;
         const endpoints = this._buildEndpointList();
         if (!endpoints.length) return;
 
@@ -338,8 +354,13 @@ const app = {
     // ── Navigation ─────────────────────────────────
 
     showTab(name) {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelector(`.tab[onclick*="${name}"]`).classList.add('active');
+        clearInterval(this.detailTimer);
+        this.activeJobId = null;
+        document.querySelectorAll('.tab').forEach(t => {
+            const selected = t.dataset.tab === name;
+            t.classList.toggle('active', selected);
+            t.setAttribute('aria-pressed', String(selected));
+        });
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         $(`tab-${name}`).classList.add('active');
         if (name === 'jobs') {
@@ -396,7 +417,7 @@ const app = {
             $('lastUpdate').textContent = new Date().toLocaleTimeString();
         } catch (err) {
             if (gen !== this._gen) return; // stale failure from a previous cluster
-            $('error').innerHTML = `<div class="warning">Waiting for cluster... (${err.message})</div>`;
+            $('error').innerHTML = `<div class="warning t-alert" data-tone="warning">Waiting for cluster... (${this._esc(err.message)})</div>`;
         }
     },
 
@@ -407,7 +428,7 @@ const app = {
         if (!total || used == null || isNaN(used)) return text;
         const pct = Math.min(100, (used / total) * 100);
         const sev = pct >= 90 ? ' crit' : pct >= 75 ? ' warn' : '';
-        return `<span class="usage"><span class="meter${sev}"><span class="meter-fill" style="width:${pct.toFixed(1)}%"></span></span><span class="meter-text">${text}</span></span>`;
+        return `<span class="usage"><span class="meter t-progress${sev}"><span class="meter-fill" style="width:${pct.toFixed(1)}%"></span></span><span class="meter-text">${text}</span></span>`;
     },
 
     // taskStateLabel toont de startfase-voortgang achter de state: tijdens
@@ -445,9 +466,9 @@ const app = {
             const tooltip = cap ? this.formatAttributes(cap.attributes) : '';
             const conn = a.endpoint === this.connectedEndpoint;
             return `<tr>
-                <td data-label="ID"><code${tooltip ? ` data-tooltip="${tooltip}"` : ''}>${a.id}</code></td>
-                <td data-label="Version"><span class="version">${a.version || 'unknown'}</span></td>
-                <td data-label="Endpoint"><code>${a.endpoint}</code>${conn ? ' <span class="connected-dot">●</span>' : ''}</td>
+                <td data-label="ID"><code${tooltip ? ` title="${this._esc(tooltip)}" data-tooltip="${this._esc(tooltip)}"` : ''}>${this._esc(a.id)}</code></td>
+                <td data-label="Version"><span class="version">${this._esc(a.version || 'unknown')}</span></td>
+                <td data-label="Endpoint"><code>${this._esc(a.endpoint)}</code>${conn ? ' <span class="connected-dot">●</span>' : ''}</td>
                 <td data-label="CPU">${cpu}</td>
                 <td data-label="Memory">${mem}</td>
                 <td data-label="Temp">${this.formatTemp(a.temp_milli_c)}</td>
@@ -476,40 +497,43 @@ const app = {
             const ok = running >= expected;
             const prio = job.priority != null ? `<span class="prio-badge">${job.priority}</span>` : '<span class="prio-badge">—</span>';
             const tip = this.formatJobTooltip(job);
-            return `<tr class="clickable" draggable="true" data-job-id="${job.name}" data-drag-idx="${idx}"
-                onclick="app.openJobDetail('${job.name}')"
+            return `<tr class="clickable" draggable="true" data-job-id="${this._esc(job.name)}" data-drag-idx="${idx}"
                 ondragstart="app.onDragStart(event,${idx})" ondragover="app.onDragOver(event)"
                 ondragleave="app.onDragLeave(event)" ondrop="app.onDrop(event,${idx})" ondragend="app.onDragEnd(event)">
-                <td class="mobile-hide" onclick="event.stopPropagation()"><span class="drag-handle">⠿</span></td>
+                <td class="mobile-hide"><span class="drag-handle" title="Drag to change priority">${icon('drag_indicator')}</span></td>
                 <td data-label="Prio">${prio}</td>
-                <td data-label="Name"><code${tip ? ` data-tooltip="${tip}"` : ''}>${job.name}</code></td>
+                <td data-label="Name"><button type="button" class="job-link t-choice" data-open-job="${this._esc(job.name)}"${tip ? ` title="${this._esc(tip)}"` : ''}>${this._esc(job.name)}</button></td>
                 <td data-label="Running">${running} / ${job.count === -1 ? 'all(' + expected + ')' : expected}</td>
                 <td data-label="Status" class="${ok ? 'status-ok' : 'status-degraded'}">${ok ? 'OK' : 'DEGRADED'}</td>
-                <td class="mobile-actions"><button class="danger small" onclick="event.stopPropagation(); app.deleteJob('${job.name}')">Delete</button></td>
+                <td class="mobile-actions"><button type="button" class="t-action t-action--danger" data-delete-job="${this._esc(job.name)}">${icon('delete')}Delete</button></td>
             </tr>`;
         }).join('');
     },
 
-    toggleNewJob() { $('newJobForm').classList.toggle('hidden'); },
+    toggleNewJob() {
+        if (!$('newJobForm').open && !this.clusters.length) { this.showAddCluster(); return; }
+        if ($('newJobForm').open) $('newJobForm').close();
+        else { $('newJobForm').showModal(); $('jobJson').focus(); }
+    },
 
     async startJob() {
         const jsonStr = $('jobJson').value.trim();
-        if (!jsonStr) { alert('Enter job JSON'); return; }
+        if (!jsonStr) { await notify('Enter job JSON'); return; }
         let job;
         try { job = JSON.parse(jsonStr); }
-        catch (e) { alert('Invalid JSON: ' + e.message); return; }
+        catch (e) { await notify('Invalid JSON: ' + e.message); return; }
         try {
             await this.fetchAPI('/v1/jobs', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job)
             });
             $('jobJson').value = '';
-            this.toggleNewJob();
+            $('newJobForm').close();
             this.refresh();
-        } catch (err) { alert('Failed to start job: ' + err.message); }
+        } catch (err) { await notify('Failed to start job: ' + err.message); }
     },
 
     async redeployJob(jobName) {
-        if (!confirm(`Redeploy job ${jobName}? This triggers a rolling update.`)) return;
+        if (!await TactileDialog.confirm(`Redeploy job ${jobName}? This triggers a rolling update.`, { title: 'Redeploy job?', tone: 'info', confirmLabel: 'Redeploy', cancelLabel: 'Cancel' })) return;
         try {
             const jobs = await this.fetchAPI('/v1/jobs');
             const job = jobs.find(j => j.name === jobName);
@@ -518,16 +542,16 @@ const app = {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job)
             });
             this.refresh();
-        } catch (err) { alert('Failed to redeploy: ' + err.message); }
+        } catch (err) { await notify('Failed to redeploy: ' + err.message); }
     },
 
     async deleteJob(jobName) {
-        if (!confirm(`Delete job ${jobName}?`)) return;
+        if (!await TactileDialog.confirm(`Delete job ${jobName}?`, { title: 'Delete job?', confirmLabel: 'Delete', cancelLabel: 'Cancel' })) return;
         try {
             await this.fetchAPI(`/v1/jobs/${jobName}`, { method: 'DELETE' });
             if (this.activeJobId === jobName) this.closeJobDetail();
             this.refresh();
-        } catch (err) { alert('Failed to delete job: ' + err.message); }
+        } catch (err) { await notify('Failed to delete job: ' + err.message); }
     },
 
     // ── Drag & drop priority ───────────────────────
@@ -570,8 +594,11 @@ const app = {
 
     async openJobDetail(jobId) {
         this.activeJobId = jobId;
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelector('.tab[onclick*="jobs"]').classList.add('active');
+        document.querySelectorAll('.tab').forEach(t => {
+            const selected = t.dataset.tab === 'jobs';
+            t.classList.toggle('active', selected);
+            t.setAttribute('aria-pressed', String(selected));
+        });
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         $('tab-jobs').classList.add('active');
         $('jobsListView').classList.add('hidden');
@@ -581,8 +608,9 @@ const app = {
         $('jobDetailRedeploy').onclick = () => this.redeployJob(jobId);
         if (!this._skipPush) history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
 
-        document.querySelector('#jobTasksTable tbody').innerHTML = '<tr><td colspan="8" class="empty">Loading...</td></tr>';
+        document.querySelector('#jobTasksTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${spinner}Loading tasks…</td></tr>`;
         await this.refreshJobDetail(jobId);
+        if (this.activeJobId !== jobId) return;
 
         clearInterval(this.detailTimer);
         this.detailTimer = setInterval(() => { if (this.activeJobId) this.refreshJobDetail(this.activeJobId); }, 5000);
@@ -600,36 +628,37 @@ const app = {
         if (job.tags) for (const [k, v] of Object.entries(job.tags)) tags.push(`${k}=${v}`);
         if (job.affinity) for (const [k, v] of Object.entries(job.affinity)) tags.push(`affinity: ${k}=${v}`);
 
-        let html = `<div class="detail-tags">${tags.map(t => `<span class="detail-tag">${t}</span>`).join(' ')}</div>`;
+        let html = `<div class="detail-tags">${tags.map(t => `<span class="detail-tag t-tag t-supplement">${this._esc(t)}</span>`).join(' ')}</div>`;
 
         if (job.command) {
-            html += `<details class="detail-section"><summary>Command</summary><pre class="detail-pre">${this._esc(job.command)}</pre></details>`;
+            html += `<details class="detail-section t-disclosure t-card"><summary>Command</summary><pre class="detail-pre">${this._esc(job.command)}</pre></details>`;
         }
         if (job.artifacts?.length) {
             const rows = job.artifacts.map(a => {
                 const match = a.match ? Object.entries(a.match).map(([k,v]) => `${k}=${v}`).join(', ') : '';
-                return `<tr><td data-label="URL"><code>${a.url}</code></td><td data-label="Match">${match}</td><td data-label="Filename">${a.filename || ''}</td><td data-label="Extract">${a.extract || 'binary'}</td></tr>`;
+                return `<tr><td data-label="URL"><code>${this._esc(a.url)}</code></td><td data-label="Match">${this._esc(match)}</td><td data-label="Filename">${this._esc(a.filename || '')}</td><td data-label="Extract">${this._esc(a.extract || 'binary')}</td></tr>`;
             }).join('');
-            html += `<details class="detail-section" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+            html += `<details class="detail-section t-disclosure t-card" open><summary>Artifacts</summary><table class="detail-table"><thead><tr><th>URL</th><th>Match</th><th>Filename</th><th>Extract</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
         if (job.volumes && Object.keys(job.volumes).length) {
             const rows = Object.entries(job.volumes).map(([h, t]) =>
-                `<tr><td data-label="Host"><code>${h}</code></td><td data-label="Task"><code>${t}</code></td></tr>`
+                `<tr><td data-label="Host"><code>${this._esc(h)}</code></td><td data-label="Task"><code>${this._esc(t)}</code></td></tr>`
             ).join('');
-            html += `<details class="detail-section" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+            html += `<details class="detail-section t-disclosure t-card" open><summary>Volumes</summary><table class="detail-table"><thead><tr><th>Host Path</th><th>Task Path</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
         if (job.env && Object.keys(job.env).length) {
             const entries = Object.entries(job.env).sort();
             const rows = entries.map(([k, v]) =>
-                `<tr><td data-label="Key"><code>${k}</code></td><td data-label="Value"><code>${v}</code></td></tr>`
+                `<tr><td data-label="Key"><code>${this._esc(k)}</code></td><td data-label="Value"><code>${this._esc(v)}</code></td></tr>`
             ).join('');
-            html += `<details class="detail-section"><summary>Environment (${entries.length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+            html += `<details class="detail-section t-disclosure t-card"><summary>Environment (${entries.length})</summary><table class="detail-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></details>`;
         }
         return html;
     },
 
     async refreshJobDetail(jobId) {
         const gen = this._gen;
+        const isCurrent = () => gen === this._gen && this.activeJobId === jobId;
         let job = this.jobs.find(j => j.name === jobId);
         if (!job) {
             // Deep link on a fresh page: jobs aren't fetched yet. Load them
@@ -637,7 +666,7 @@ const app = {
             // user back to the list on every direct #jobs/<name> visit).
             try {
                 const jobs = await this.fetchAPI('/v1/jobs');
-                if (gen !== this._gen) return; // cluster switched mid-flight
+                if (!isCurrent()) return; // view or cluster changed mid-flight
                 this.jobs = jobs;
             } catch (e) { return; } // unreachable — keep "Loading…", refresh() retries
             job = this.jobs.find(j => j.name === jobId);
@@ -668,6 +697,7 @@ const app = {
         // Tasks
         try {
             const js = await this.fetchAPI(`/v1/jobs/${jobId}/status`);
+            if (!isCurrent()) return;
             const tasks = [];
             if (js?.tasks_by_agent) {
                 for (const [agentId, agentTasks] of Object.entries(js.tasks_by_agent)) {
@@ -692,20 +722,21 @@ const app = {
                     s.textContent = this.taskStateLabel(t);
                 }
             } else {
-                tbody.innerHTML = tasks.length ? tasks.map(t => `<tr data-task-id="${t.id}">
-                    <td data-label="Task"><code>${t.id.slice(0, 8)}</code></td>
-                    <td data-label="Agent"><code>${t.agentId}</code></td>
+                tbody.innerHTML = tasks.length ? tasks.map(t => `<tr data-task-id="${this._esc(t.id)}">
+                    <td data-label="Task"><code>${this._esc(t.id.slice(0, 8))}</code></td>
+                    <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
                     <td data-label="Ports">${this.formatPorts(t.ports)}</td>
                     <td data-label="CPU" class="task-cpu">${this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent))}</td>
                     <td data-label="Mem" class="task-mem">${this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent))}</td>
                     <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
-                    <td data-label="State"><span class="status task-state ${t.state}">${this.taskStateLabel(t)}</span></td>
-                    <td class="mobile-actions"><button class="small" onclick="app.openLogs('${t.id}','${t.agentId}','${t.agentEndpoint}')">Logs</button></td>
+                    <td data-label="State"><span class="status task-state ${this._esc(t.state)}">${this._esc(this.taskStateLabel(t))}</span></td>
+                    <td class="mobile-actions"><button type="button" class="t-action" data-log-task="${this._esc(t.id)}" data-log-agent="${this._esc(t.agentId)}" data-log-endpoint="${this._esc(t.agentEndpoint || '')}">${icon('terminal')}Logs</button></td>
                 </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
         } catch (err) {
+            if (!isCurrent()) return;
             document.querySelector('#jobTasksTable tbody').innerHTML =
-                `<tr><td colspan="8" class="empty">Failed to load tasks: ${err.message}</td></tr>`;
+                `<tr><td colspan="8" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
         }
     },
 
@@ -724,9 +755,11 @@ const app = {
         this.currentStream = 'stdout';
         $('logTaskId').textContent = taskId.slice(0, 8);
         $('logOutput').textContent = '';
-        $('logModal').classList.remove('hidden');
+        if (!$('logModal').open) $('logModal').showModal();
         $('btnStdout').classList.add('active');
         $('btnStderr').classList.remove('active');
+        $('btnStdout').setAttribute('aria-pressed', 'true');
+        $('btnStderr').setAttribute('aria-pressed', 'false');
         this.startLogStream();
     },
 
@@ -734,6 +767,8 @@ const app = {
         this.currentStream = stream;
         $('btnStdout').classList.toggle('active', stream === 'stdout');
         $('btnStderr').classList.toggle('active', stream === 'stderr');
+        $('btnStdout').setAttribute('aria-pressed', String(stream === 'stdout'));
+        $('btnStderr').setAttribute('aria-pressed', String(stream === 'stderr'));
         $('logOutput').textContent = '';
         this.startLogStream();
     },
@@ -745,11 +780,14 @@ const app = {
         const abort = new AbortController();
         this.logAbort = abort;
         const output = $('logOutput');
+        $('logStatus').innerHTML = `${spinner}Connecting…`;
         output.textContent += `Connecting via leader relay...\n`;
 
         try {
             const resp = await fetch(url, { headers: await this.signHeaders('GET', url, null), signal: abort.signal });
-            if (!resp.ok || !resp.body) { output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
+            if (abort.signal.aborted) return;
+            if (!resp.ok || !resp.body) { $('logStatus').textContent = 'Connection failed'; output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
+            $('logStatus').textContent = 'Live output';
             output.textContent += '[Connected]\n';
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
@@ -765,15 +803,17 @@ const app = {
                 }
                 output.scrollTop = output.scrollHeight;
             }
+            if (abort.signal.aborted) return;
+            $('logStatus').textContent = 'Stream ended';
             output.textContent += '\n[Connection closed]\n';
         } catch (e) {
-            if (!abort.signal.aborted) output.textContent += `\n[Error: ${e.message}]\n`;
+            if (!abort.signal.aborted) { $('logStatus').textContent = 'Connection failed'; output.textContent += `\n[Error: ${e.message}]\n`; }
         }
     },
 
     closeLogs() {
         if (this.logAbort) { this.logAbort.abort(); this.logAbort = null; }
-        $('logModal').classList.add('hidden');
+        if ($('logModal').open) $('logModal').close();
         this.currentTask = null;
     },
 
@@ -792,7 +832,7 @@ const app = {
 
     formatPorts(ports) {
         if (!ports || !Object.keys(ports).length) return '-';
-        return Object.entries(ports).map(([k, v]) => `${k}:${v}`).join(', ');
+        return Object.entries(ports).map(([k, v]) => `${this._esc(k)}:${this._esc(v)}`).join(', ');
     },
 
     formatAttributes(attrs) {
@@ -817,15 +857,36 @@ const app = {
         return parts.join('\n');
     },
 
-    _esc(str) { return str.replace(/&/g, '&amp;').replace(/</g, '&lt;'); },
+    _esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c])); },
 };
 
-// Keyboard shortcuts
-$('clusterApiKey').addEventListener('keypress', e => { if (e.key === 'Enter') app.addClusterFromForm(); });
-$('clusterEndpoint').addEventListener('keypress', e => { if (e.key === 'Enter') $('clusterApiKey').focus(); });
-$('clusterName').addEventListener('keypress', e => { if (e.key === 'Enter') $('clusterEndpoint').focus(); });
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { app.closeLogs(); app.hideAddCluster(); if (app.activeJobId) app.closeJobDetail(); }
+// Keep native forms, keyboard navigation and dialogs usable after live rerenders.
+$('addClusterForm').addEventListener('submit', event => { event.preventDefault(); app.addClusterFromForm(); });
+$('createJobForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('startJobButton');
+    if (button.disabled) return;
+    button.disabled = true;
+    try { await app.startJob(); } finally { button.disabled = false; }
+});
+$('logModal').addEventListener('cancel', event => { event.preventDefault(); app.closeLogs(); });
+$('logModal').addEventListener('close', () => app.closeLogs());
+$('clusterForm').addEventListener('cancel', event => { event.preventDefault(); app.hideAddCluster(); });
+document.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (button?.dataset.cluster !== undefined) app.switchCluster(Number(button.dataset.cluster));
+    else if (button?.dataset.removeCluster !== undefined) app.removeCluster(Number(button.dataset.removeCluster));
+    else if (button?.dataset.deleteJob !== undefined) app.deleteJob(button.dataset.deleteJob);
+    else if (button?.dataset.logTask !== undefined) app.openLogs(button.dataset.logTask, button.dataset.logAgent, button.dataset.logEndpoint);
+    else if (button?.dataset.openJob !== undefined) app.openJobDetail(button.dataset.openJob);
+    else if (!button && !event.target.closest('input, a')) {
+        const row = event.target.closest('tr[data-job-id]');
+        if (row) app.openJobDetail(row.dataset.jobId);
+    }
+});
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if (app.activeJobId) app.closeJobDetail();
 });
 window.addEventListener('popstate', () => app.navigateToHash());
 
