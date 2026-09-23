@@ -47,5 +47,5 @@ The dashboard's delete icon removes the selected server from this browser,
 after confirmation; its workloads keep running. On narrow screens the sidebar
 stacks above the dashboard, keeping the server list vertical.
 
-Icon actions remain at least 48 × 48 px; tags keep the shared 52 px minimum
+Icon actions remain at least 36 × 36 px; tags keep the shared 32 px minimum
 height and tables vertically center text, status labels and actions.
