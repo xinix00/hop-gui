@@ -7,11 +7,24 @@ const notify = message => TactileDialog.notice(message, { title: 'Hop', confirmL
 function httpStatusMessage(status) {
     switch (status) {
         case 502: return 'HTTP 502 — agent cannot reach the leader (leader down or election in progress)';
-        case 503: return 'HTTP 503 — no leader available yet (election in progress)';
+        case 503: return 'HTTP 503 — service unavailable (no leader yet, or the node refused the request)';
         case 401: return 'HTTP 401 — authentication failed (check API key)';
         case 403: return 'HTTP 403 — access denied (check API key)';
         default:  return `HTTP ${status}`;
     }
+}
+
+// httpErrorMessage prefers the server's own explanation ({"error": "..."})
+// over a guess from the status: a 503 is not always an election — "too many
+// open streams" is one too, and the agent says so in the body.
+async function httpErrorMessage(resp) {
+    try {
+        const body = await resp.clone().json();
+        if (body && typeof body.error === 'string' && body.error) {
+            return `HTTP ${resp.status} — ${body.error}`;
+        }
+    } catch (e) { /* no JSON body: fall back to the status */ }
+    return httpStatusMessage(resp.status);
 }
 
 // withDefaultPort completes a bare host/IP with the agent port. A `?ip=10.0.0.5`
@@ -217,7 +230,7 @@ const app = {
         const auth = await this.signHeaders(method, url, options.body);
         const headers = { ...auth, ...(options.headers || {}) };
         const resp = await fetch(url, { ...options, headers });
-        if (!resp.ok) throw new Error(httpStatusMessage(resp.status));
+        if (!resp.ok) throw new Error(await httpErrorMessage(resp));
         return resp.status === 204 ? null : resp.json();
     },
 
@@ -325,7 +338,7 @@ const app = {
             if (!resp.ok || !resp.body) {
                 // Agent is reachable but returned an error — don't failover,
                 // show the specific error and retry the same endpoint
-                this.setSseStatus(false, httpStatusMessage(resp.status));
+                this.setSseStatus(false, await httpErrorMessage(resp));
                 this._startFallbackPoll();
                 setTimeout(() => this.connectSSE(), 10000);
                 return;
@@ -794,7 +807,7 @@ const app = {
         try {
             const resp = await fetch(url, { headers: await this.signHeaders('GET', url, null), signal: abort.signal });
             if (abort.signal.aborted) return;
-            if (!resp.ok || !resp.body) { $('logStatus').textContent = 'Connection failed'; output.textContent += `[Error: HTTP ${resp.status}]\n`; return; }
+            if (!resp.ok || !resp.body) { $('logStatus').textContent = 'Connection failed'; output.textContent += `[Error: ${await httpErrorMessage(resp)}]\n`; return; }
             $('logStatus').textContent = 'Live output';
             output.textContent += '[Connected]\n';
             const reader = resp.body.getReader();
