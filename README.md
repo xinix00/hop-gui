@@ -138,8 +138,8 @@ same sequence against `agentd` with a real key and also requires a `401`
 for an unsigned call.
 
 Dependencies come from git tags only, never a path across a repository:
-hop `v3.0.0-alpha.10` (`hostnet`), HopOS `v3.0.0-alpha.10` (`applib` with
-`http`, and `sync`), lean `v3.1.1` (`leanhttp`).
+hop `v3.0.0` (`hostnet`), HopOS `v3.0.0` (`applib` with
+`http`, and `sync`), lean `v3.1.3` (`leanhttp`).
 
 ## Dashboard
 
