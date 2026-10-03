@@ -68,7 +68,6 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
   .panel { overflow: hidden; }
-  .panel + .panel { margin-top: 20px; }
   .panel-header { flex-wrap: wrap; }
   .panel-header > div { min-width: 0; }
   .panel-note { color: var(--muted); font-size: 11px; }

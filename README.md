@@ -106,7 +106,7 @@ ones to the leader:
 | `GET /v1/status` | `agents`, `jobs`, `total_placed`, `settling`, `placed` |
 | `GET /v1/agents` | the agents table |
 | `GET /v1/agents/{id}/capacity` | CPU, memory, tasks and attributes per agent |
-| `GET /v1/tasks` | the task list per agent (`tasks_by_agent`), the kernel and Hop as `system` |
+| `GET /v1/tasks` | the tasks of an open agent (`tasks_by_agent`), the kernel and Hop as `system` |
 | `GET /v1/jobs`, `POST /v1/jobs` | the jobs table, a new job, a redeploy |
 | `DELETE /v1/jobs/{name}` | delete a job |
 | `PATCH /v1/jobs/{name}/priority` | the drag order (`{"priority": index}`) |
@@ -148,7 +148,7 @@ hop `v3.0.0` (`hostnet`), HopOS `v3.0.0` (`applib` with
 - Agent CPU, memory, temperature and task counts.
 - Jobs with draggable priority, creation, redeployment and deletion.
 - Job details, task status and live stdout/stderr logs.
-- Direct links to `#agents`, `#jobs` and `#jobs/<encoded-name>`.
+- Direct links to `#agents`, `#agents/<encoded-id>`, `#jobs` and `#jobs/<encoded-name>`.
 - `?name=NODE&ip=IP` prefills the cluster form without connecting automatically.
 - Responsive tables and keyboard-accessible forms, confirmations and dialogs.
 

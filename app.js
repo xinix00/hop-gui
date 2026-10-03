@@ -39,7 +39,7 @@ function withDefaultPort(addr) {
 const app = {
     clusterSSE: null, refreshTimer: null, detailTimer: null, fallbackTimer: null,
     logAbort: null, currentTask: null, currentStream: 'stdout',
-    activeJobId: null, _skipPush: false, _dragSrcIdx: null,
+    activeJobId: null, activeAgentId: null, _skipPush: false, _dragSrcIdx: null,
     agents: [], status: null, jobs: [], capacityByEndpoint: {},
     clusters: [], activeCluster: 0,
     connectedEndpoint: null, _poolEndpoints: [], _poolIdx: 0,
@@ -136,10 +136,12 @@ const app = {
         this.setSseStatus(true); // clear any stale SSE banner; connect will repopulate
         const message = this.clusters.length ? `${spinner}Connecting to cluster…` : 'Add a cluster to get started.';
         document.querySelector('#agentsTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${message}</td></tr>`;
-        document.querySelector('#agentTasksTable tbody').innerHTML = `<tr><td colspan="7" class="empty">${message}</td></tr>`;
         document.querySelector('#jobsTable tbody').innerHTML = `<tr><td colspan="6" class="empty">${message}</td></tr>`;
         clearInterval(this.detailTimer);
         this.activeJobId = null;
+        this.activeAgentId = null;
+        $('agentDetailView').classList.add('hidden');
+        $('agentsListView').classList.remove('hidden');
         $('jobDetailView').classList.add('hidden');
         $('jobsListView').classList.remove('hidden');
     },
@@ -378,6 +380,7 @@ const app = {
     showTab(name) {
         clearInterval(this.detailTimer);
         this.activeJobId = null;
+        this.activeAgentId = null;
         document.querySelectorAll('.tab').forEach(t => {
             const selected = t.dataset.tab === name;
             t.classList.toggle('active', selected);
@@ -389,6 +392,9 @@ const app = {
             this.activeJobId = null;
             $('jobDetailView').classList.add('hidden');
             $('jobsListView').classList.remove('hidden');
+        } else {
+            $('agentDetailView').classList.add('hidden');
+            $('agentsListView').classList.remove('hidden');
         }
         if (!this._skipPush) history.pushState(null, '', '#' + name);
     },
@@ -398,6 +404,7 @@ const app = {
         this._skipPush = true;
         this.closeLogs();
         if (hash.startsWith('#jobs/')) this.openJobDetail(decodeURIComponent(hash.slice(6)));
+        else if (hash.startsWith('#agents/')) this.openAgentDetail(decodeURIComponent(hash.slice(8)));
         else if (hash === '#jobs') this.showTab('jobs');
         else this.showTab('agents');
         this._skipPush = false;
@@ -433,9 +440,9 @@ const app = {
                 if (gen === this._gen) this.renderAgentsTable();
             });
             this.renderAgentsTable();
-            this.refreshAgentTasks(gen);
             this.renderJobsTable(jobs, status.placed || {}, status.agents);
             if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
+            if (this.activeAgentId) this.refreshAgentDetail(this.activeAgentId);
 
             $('lastUpdate').textContent = new Date().toLocaleTimeString();
         } catch (err) {
@@ -504,8 +511,8 @@ const app = {
                 `${this.formatBytes(cap.memory_used_bytes)}/${this.formatBytes(cap.memory_bytes)}`) : '-';
             const tooltip = cap ? this.formatAttributes(cap.attributes) : '';
             const conn = a.endpoint === this.connectedEndpoint;
-            return `<tr>
-                <td data-label="ID"><code${tooltip ? ` title="${this._esc(tooltip)}" data-tooltip="${this._esc(tooltip)}"` : ''}>${this._esc(a.id)}</code></td>
+            return `<tr class="clickable" data-agent-id="${this._esc(a.id)}">
+                <td data-label="ID"><button type="button" class="job-link t-choice" data-open-agent="${this._esc(a.id)}"${tooltip ? ` title="${this._esc(tooltip)}" data-tooltip="${this._esc(tooltip)}"` : ''}>${this._esc(a.id)}</button></td>
                 <td data-label="Version"><span class="version">${this._esc(a.version || 'unknown')}</span></td>
                 <td data-label="Endpoint"><code>${this._esc(a.endpoint)}</code>${conn ? ' <span class="connected-dot">●</span>' : ''}</td>
                 <td data-label="CPU">${cpu}</td>
@@ -519,44 +526,106 @@ const app = {
 
     // flatTasks maakt van tasks_by_agent één lijst, per agent gesorteerd; de
     // systeemtaken (kern en Hop, state "system") staan bovenaan bij hun agent,
-    // op pid: eerst de kern (0), dan Hop (1).
+    // op pid: eerst de kern (0), dan Hop (1). memLimit is de noemer van het
+    // geheugenprocent: memory_limit van de taak, of voor kern en Hop hun RAM
+    // uit /v1/agents.
     flatTasks(byAgent) {
         const tasks = [];
         for (const [agentId, agentTasks] of Object.entries(byAgent || {})) {
             const agent = this.agents.find(a => a.id === agentId);
-            for (const t of agentTasks) tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
+            const sysRam = { kern: agent?.kern_ram_bytes, hop: agent?.hop_ram_bytes };
+            for (const t of agentTasks) tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint,
+                memLimit: t.state === 'system' ? sysRam[t.job_name] : t.memory_limit });
         }
         const rank = t => t.state === 'system' ? (t.pid || 0) : Infinity;
         return tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || rank(a) - rank(b) || a.id.localeCompare(b.id));
     },
 
+    // taskCpu en taskMem: het procent met zijn noemer erbij, "1.0% of 1 core"
+    // en "0.4% of 32 MB"; zonder bekende noemer (een oude agent) alleen het procent.
+    taskCpu(t) {
+        const of = t.cores ? ` of ${t.cores} core${t.cores === 1 ? '' : 's'}` : '';
+        return this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent) + of);
+    },
+
+    taskMem(t) {
+        const of = t.memLimit ? ` of ${this.formatBytes(t.memLimit)}` : '';
+        return this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent) + of);
+    },
+
     // taskCells: de cellen van een taakrij vanaf CPU, gedeeld door de takenlijst
-    // van een job en die van de agents. Een systeemtaak heeft geen logs.
+    // van een job en die van een agent. Een systeemtaak heeft geen logs.
     taskCells(t) {
-        return `<td data-label="CPU" class="task-cpu">${this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent))}</td>
-                    <td data-label="Mem" class="task-mem">${this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent))}</td>
+        return `<td data-label="CPU" class="task-cpu">${this.taskCpu(t)}</td>
+                    <td data-label="Mem" class="task-mem">${this.taskMem(t)}</td>
                     <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
                     <td data-label="State"><span class="t-tag t-supplement status task-state ${this._esc(t.state)}">${this._statusContent(this.taskStateLabel(t))}</span></td>
                     <td class="mobile-actions">${t.state === 'system' ? '' : `<button type="button" class="t-action" data-log-task="${this._esc(t.id)}" data-log-agent="${this._esc(t.agentId)}" data-log-endpoint="${this._esc(t.agentEndpoint || '')}">${icon('terminal')}Logs</button>`}</td>`;
     },
 
-    // refreshAgentTasks haalt alle taken van het cluster (/v1/tasks), met het
-    // ritme van de agents-tabel; kern en Hop lopen mee als systeemtaak.
-    async refreshAgentTasks(gen) {
+    // ── Agent detail ───────────────────────────────
+
+    // Een agent openen gaat zoals een job openen: de lijst wijkt voor zijn
+    // taken, die het detailritme (5 s) en refresh() bijhouden.
+    async openAgentDetail(agentId) {
+        clearInterval(this.detailTimer);
+        this.activeJobId = null;
+        this.activeAgentId = agentId;
+        document.querySelectorAll('.tab').forEach(t => {
+            const selected = t.dataset.tab === 'agents';
+            t.classList.toggle('active', selected);
+            t.setAttribute('aria-pressed', String(selected));
+        });
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        $('tab-agents').classList.add('active');
+        $('agentsListView').classList.add('hidden');
+        $('agentDetailView').classList.remove('hidden');
+        $('agentDetailName').textContent = agentId;
+        if (!this._skipPush) history.pushState(null, '', '#agents/' + encodeURIComponent(agentId));
+
+        document.querySelector('#agentTasksTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${spinner}Loading tasks…</td></tr>`;
+        await this.refreshAgentDetail(agentId);
+        if (this.activeAgentId !== agentId) return;
+
+        clearInterval(this.detailTimer);
+        this.detailTimer = setInterval(() => { if (this.activeAgentId) this.refreshAgentDetail(this.activeAgentId); }, 5000);
+    },
+
+    // refreshAgentDetail haalt de taken van het cluster (/v1/tasks) en toont die
+    // van deze agent: eerst kern en Hop (state "system"), dan de rest.
+    async refreshAgentDetail(agentId) {
+        const gen = this._gen;
+        const isCurrent = () => gen === this._gen && this.activeAgentId === agentId;
+        const agent = this.agents.find(a => a.id === agentId);
+        const tags = agent ? [`version: ${agent.version || 'unknown'}`, agent.endpoint] : [];
+        $('agentDetailInfo').innerHTML = tags.length ? `<div class="detail-tags">${tags.map(t => `<span class="detail-tag t-tag t-supplement">${this._esc(t)}</span>`).join(' ')}</div>` : '';
         const tbody = document.querySelector('#agentTasksTable tbody');
         try {
             const reply = await this.fetchAPI('/v1/tasks');
-            if (gen !== this._gen) return;
-            const tasks = this.flatTasks(reply?.tasks_by_agent);
+            if (!isCurrent()) return;
+            if (reply?.unreachable?.includes(agentId)) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty">The agent did not answer</td></tr>';
+                return;
+            }
+            const tasks = this.flatTasks({ [agentId]: reply?.tasks_by_agent?.[agentId] || [] });
             tbody.innerHTML = tasks.length ? tasks.map(t => `<tr>
+                    <td data-label="Task"><code>${this._esc(t.id.slice(0, 8))}</code></td>
                     <td data-label="Job"><code>${this._esc(t.job_name)}</code></td>
-                    <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
+                    <td data-label="Ports">${this._esc(this.formatPorts(t.ports))}</td>
                     ${this.taskCells(t)}
-                </tr>`).join('') : '<tr><td colspan="7" class="empty">No tasks</td></tr>';
+                </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
         } catch (err) {
-            if (gen !== this._gen) return;
-            tbody.innerHTML = `<tr><td colspan="7" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
+            if (!isCurrent()) return;
+            tbody.innerHTML = `<tr><td colspan="8" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
         }
+    },
+
+    closeAgentDetail() {
+        clearInterval(this.detailTimer);
+        this.activeAgentId = null;
+        $('agentDetailView').classList.add('hidden');
+        $('agentsListView').classList.remove('hidden');
+        if (!this._skipPush) history.pushState(null, '', '#agents');
     },
 
     // ── Jobs table ─────────────────────────────────
@@ -675,6 +744,7 @@ const app = {
     // ── Job detail ─────────────────────────────────
 
     async openJobDetail(jobId) {
+        this.activeAgentId = null;
         this.activeJobId = jobId;
         document.querySelectorAll('.tab').forEach(t => {
             const selected = t.dataset.tab === 'jobs';
@@ -706,6 +776,7 @@ const app = {
         if (job.update_policy) tags.push(`update: ${job.update_policy}`);
         if (job.cpu_shares) tags.push(`cpu: ${job.cpu_shares}`);
         if (job.memory_limit) tags.push(`mem: ${this.formatBytes(job.memory_limit)}`);
+        tags.push(`ports: ${this.formatPorts(job.ports)}`);
         if (job.max_restarts != null) tags.push(`restarts: ${job.max_restarts === -1 ? '∞' : job.max_restarts}`);
         if (job.tags) for (const [k, v] of Object.entries(job.tags)) tags.push(`${k}=${v}`);
         if (job.affinity) for (const [k, v] of Object.entries(job.affinity)) tags.push(`affinity: ${k}=${v}`);
@@ -789,8 +860,8 @@ const app = {
             if (tasks.length && tasks.length === Object.keys(existing).length && tasks.every(t => existing[t.id])) {
                 for (const t of tasks) {
                     const row = existing[t.id];
-                    row.querySelector('.task-cpu').innerHTML = this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent));
-                    row.querySelector('.task-mem').innerHTML = this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent));
+                    row.querySelector('.task-cpu').innerHTML = this.taskCpu(t);
+                    row.querySelector('.task-mem').innerHTML = this.taskMem(t);
                     row.querySelector('.task-restarts').textContent = t.restart_count || 0;
                     const s = row.querySelector('.task-state');
                     s.className = 't-tag t-supplement status task-state ' + t.state;
@@ -800,7 +871,7 @@ const app = {
                 tbody.innerHTML = tasks.length ? tasks.map(t => `<tr data-task-id="${this._esc(t.id)}">
                     <td data-label="Task"><code>${this._esc(t.id.slice(0, 8))}</code></td>
                     <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
-                    <td data-label="Ports">${this.formatPorts(t.ports)}</td>
+                    <td data-label="Ports">${this._esc(this.formatPorts(t.ports))}</td>
                     ${this.taskCells(t)}
                 </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
@@ -901,9 +972,11 @@ const app = {
 
     formatPercent(val) { return val != null ? val.toFixed(1) + '%' : '-'; },
 
+    // formatPorts: de gepubliceerde poorten als "http 80, bench 9000", of "-";
+    // platte tekst, de aanroeper escapet.
     formatPorts(ports) {
         if (!ports || !Object.keys(ports).length) return '-';
-        return Object.entries(ports).map(([k, v]) => `${this._esc(k)}:${this._esc(v)}`).join(', ');
+        return Object.entries(ports).map(([k, v]) => `${k} ${v}`).join(', ');
     },
 
     formatAttributes(attrs) {
@@ -962,14 +1035,18 @@ document.addEventListener('click', event => {
     else if (button?.dataset.deleteJob !== undefined) app.deleteJob(button.dataset.deleteJob);
     else if (button?.dataset.logTask !== undefined) app.openLogs(button.dataset.logTask, button.dataset.logAgent, button.dataset.logEndpoint);
     else if (button?.dataset.openJob !== undefined) app.openJobDetail(button.dataset.openJob);
+    else if (button?.dataset.openAgent !== undefined) app.openAgentDetail(button.dataset.openAgent);
     else if (!button && !event.target.closest('input, a')) {
         const row = event.target.closest('tr[data-job-id]');
         if (row) app.openJobDetail(row.dataset.jobId);
+        const agentRow = event.target.closest('tr[data-agent-id]');
+        if (agentRow) app.openAgentDetail(agentRow.dataset.agentId);
     }
 });
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
     if (app.activeJobId) app.closeJobDetail();
+    else if (app.activeAgentId) app.closeAgentDetail();
 });
 window.addEventListener('popstate', () => app.navigateToHash());
 
