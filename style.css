@@ -84,7 +84,7 @@
   .meter-fill { display: block; height: 100%; background: var(--meter-fill); }
   .meter.warn .meter-fill { background: var(--warning); }
   .meter.crit .meter-fill { background: var(--critical); }
-  .meter-text, .temp { font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
+  .meter-text, .temp, .sys { font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
   .temp.warn { color: var(--warning); }
   .temp.crit { color: var(--critical); }
   .drag-handle { cursor: grab; color: var(--muted); }
@@ -98,6 +98,7 @@
   .status.failed { color: var(--red); }
   .status.stopping { color: var(--yellow); }
   .status.downloading { color: var(--accent-light); }
+  .status.system { color: var(--muted); }
   .empty { padding: 48px 24px !important; text-align: center !important; color: var(--muted); }
   .empty::before { content: '(\\(\\'; display: block; font: 22px var(--mono); color: var(--accent-light); margin-bottom: 12px; }
   .empty .t-spinner { margin-right: 8px; }
