@@ -68,6 +68,7 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
   .panel { overflow: hidden; }
+  .panel + .panel { margin-top: 20px; }
   .panel-header { flex-wrap: wrap; }
   .panel-header > div { min-width: 0; }
   .panel-note { color: var(--muted); font-size: 11px; }
@@ -79,12 +80,13 @@
   .t-table tbody tr.clickable { cursor: pointer; }
   .version { font: 11px var(--mono); color: var(--muted); }
   .connected-dot { color: var(--green); margin-left: 6px; font-size: 9px; }
+  .system-usage { display: grid; gap: 6px; }
   .usage { display: flex; align-items: center; gap: 8px; min-width: 130px; }
   .meter { display: inline-block; flex: 0 0 56px; height: 6px; margin: 0; }
   .meter-fill { display: block; height: 100%; background: var(--meter-fill); }
   .meter.warn .meter-fill { background: var(--warning); }
   .meter.crit .meter-fill { background: var(--critical); }
-  .meter-text, .temp, .sys { font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
+  .meter-text, .temp { font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
   .temp.warn { color: var(--warning); }
   .temp.crit { color: var(--critical); }
   .drag-handle { cursor: grab; color: var(--muted); }

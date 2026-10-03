@@ -184,6 +184,9 @@
                     Memory
                   </th>
                   <th scope="col">
+                    System
+                  </th>
+                  <th scope="col">
                     Temp
                   </th>
                   <th scope="col">
@@ -193,8 +196,61 @@
               </thead>
               <tbody>
                 <tr>
-                  <td colspan="7" class="empty">
+                  <td colspan="8" class="empty">
                     Add a cluster to see its agents.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel t-panel">
+          <div class="panel-header t-panel-head">
+            <div>
+              <h2 id="agentTasksHeading">
+                Tasks
+              </h2>
+              <p>
+                Every task per agent, the kernel and Hop included.
+              </p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table id="agentTasksTable" class="t-table">
+              <caption class="sr-only">
+                Tasks on each agent
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Job
+                  </th>
+                  <th scope="col">
+                    Agent
+                  </th>
+                  <th scope="col">
+                    CPU
+                  </th>
+                  <th scope="col">
+                    Mem
+                  </th>
+                  <th scope="col">
+                    Restarts
+                  </th>
+                  <th scope="col">
+                    State
+                  </th>
+                  <th scope="col">
+                    <span class="sr-only">
+                      Actions
+                    </span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="7" class="empty">
+                    Add a cluster to see its tasks.
                   </td>
                 </tr>
               </tbody>

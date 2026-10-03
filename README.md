@@ -106,6 +106,7 @@ ones to the leader:
 | `GET /v1/status` | `agents`, `jobs`, `total_placed`, `settling`, `placed` |
 | `GET /v1/agents` | the agents table |
 | `GET /v1/agents/{id}/capacity` | CPU, memory, tasks and attributes per agent |
+| `GET /v1/tasks` | the task list per agent (`tasks_by_agent`), the kernel and Hop as `system` |
 | `GET /v1/jobs`, `POST /v1/jobs` | the jobs table, a new job, a redeploy |
 | `DELETE /v1/jobs/{name}` | delete a job |
 | `PATCH /v1/jobs/{name}/priority` | the drag order (`{"priority": index}`) |

@@ -135,7 +135,8 @@ const app = {
         $('error').innerHTML = '';
         this.setSseStatus(true); // clear any stale SSE banner; connect will repopulate
         const message = this.clusters.length ? `${spinner}Connecting to cluster…` : 'Add a cluster to get started.';
-        document.querySelector('#agentsTable tbody').innerHTML = `<tr><td colspan="7" class="empty">${message}</td></tr>`;
+        document.querySelector('#agentsTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${message}</td></tr>`;
+        document.querySelector('#agentTasksTable tbody').innerHTML = `<tr><td colspan="7" class="empty">${message}</td></tr>`;
         document.querySelector('#jobsTable tbody').innerHTML = `<tr><td colspan="6" class="empty">${message}</td></tr>`;
         clearInterval(this.detailTimer);
         this.activeJobId = null;
@@ -432,6 +433,7 @@ const app = {
                 if (gen === this._gen) this.renderAgentsTable();
             });
             this.renderAgentsTable();
+            this.refreshAgentTasks(gen);
             this.renderJobsTable(jobs, status.placed || {}, status.agents);
             if (this.activeJobId) this.refreshJobDetail(this.activeJobId);
 
@@ -475,29 +477,25 @@ const app = {
         return `<span class="temp${sev}">${c.toFixed(1)}°C</span>`;
     },
 
-    // formatSys toont wat de kern of Hop zelf op een node gebruikt (uit
-    // /v1/agents: kern_cpu_percent/kern_mem_bytes, hop_cpu_percent/
-    // hop_mem_bytes), als "kern 3% 12 MB". Een oude agent kent de velden niet
-    // of geeft 0: dan valt dat stuk weg, net als bij formatTemp geen nep-nul.
-    formatSys(label, cpu, mem) {
-        const parts = [];
-        if (cpu) parts.push(`${Math.round(cpu)}%`);
-        if (mem) parts.push(this.formatBytes(mem));
-        return parts.length ? `<span class="sys">${label} ${parts.join(' ')}</span>` : '';
-    },
-
-    // formatNode zet temperatuur, kern en Hop in één cel, met " · " ertussen;
-    // is er niets van dat alles, dan een streepje, zoals voorheen zonder sensor.
-    formatNode(a) {
-        const parts = [a.temp_milli_c ? this.formatTemp(a.temp_milli_c) : '',
-            this.formatSys('kern', a.kern_cpu_percent, a.kern_mem_bytes),
-            this.formatSys('hop', a.hop_cpu_percent, a.hop_mem_bytes)].filter(Boolean);
-        return parts.length ? parts.join(' · ') : '-';
+    // formatSystem tekent wat de kern en Hop zelf op een node gebruiken (uit
+    // /v1/agents) in twee regels met de meter van de gui: de cpu van de kern
+    // als balk met die van Hop als tekst, en het geheugen van de kern tegen
+    // zijn RAM ("30 MB/40 MB") met dat van Hop erbij. Een veld zonder meting
+    // ontbreekt (een oude agent): dan een streepje, zoals bij formatTemp.
+    formatSystem(a) {
+        const pct = v => `${Math.round(v)}%`;
+        const hop = (v, fmt) => v != null ? ` · hop ${fmt(v)}` : '';
+        const ram = a.kern_ram_bytes ? '/' + this.formatBytes(a.kern_ram_bytes) : '';
+        const cpu = a.kern_cpu_percent == null ? '-' : this.meter(a.kern_cpu_percent, 100,
+            `kern ${pct(a.kern_cpu_percent)}${hop(a.hop_cpu_percent, pct)}`);
+        const mem = a.kern_mem_bytes == null ? '-' : this.meter(a.kern_mem_bytes, a.kern_ram_bytes,
+            `${this.formatBytes(a.kern_mem_bytes)}${ram}${hop(a.hop_mem_bytes, b => this.formatBytes(b))}`);
+        return cpu === '-' && mem === '-' ? '-' : `<div class="system-usage">${cpu}${mem}</div>`;
     },
 
     renderAgentsTable() {
         const tbody = document.querySelector('#agentsTable tbody');
-        if (!this.agents.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No agents</td></tr>'; return; }
+        if (!this.agents.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No agents</td></tr>'; return; }
         tbody.innerHTML = [...this.agents].sort((a, b) => a.id.localeCompare(b.id)).map(a => {
             const cap = this.capacityByEndpoint[a.endpoint];
             const cpu = cap ? this.meter(cap.cpu_used_shares, cap.cpu_cores * 1024,
@@ -512,10 +510,53 @@ const app = {
                 <td data-label="Endpoint"><code>${this._esc(a.endpoint)}</code>${conn ? ' <span class="connected-dot">●</span>' : ''}</td>
                 <td data-label="CPU">${cpu}</td>
                 <td data-label="Memory">${mem}</td>
-                <td data-label="Temp">${this.formatNode(a)}</td>
+                <td data-label="System">${this.formatSystem(a)}</td>
+                <td data-label="Temp">${this.formatTemp(a.temp_milli_c)}</td>
                 <td data-label="Tasks">${cap ? cap.tasks_running : '-'}</td>
             </tr>`;
         }).join('');
+    },
+
+    // flatTasks maakt van tasks_by_agent één lijst, per agent gesorteerd; de
+    // systeemtaken (kern en Hop, state "system") staan bovenaan bij hun agent,
+    // op pid: eerst de kern (0), dan Hop (1).
+    flatTasks(byAgent) {
+        const tasks = [];
+        for (const [agentId, agentTasks] of Object.entries(byAgent || {})) {
+            const agent = this.agents.find(a => a.id === agentId);
+            for (const t of agentTasks) tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
+        }
+        const rank = t => t.state === 'system' ? (t.pid || 0) : Infinity;
+        return tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || rank(a) - rank(b) || a.id.localeCompare(b.id));
+    },
+
+    // taskCells: de cellen van een taakrij vanaf CPU, gedeeld door de takenlijst
+    // van een job en die van de agents. Een systeemtaak heeft geen logs.
+    taskCells(t) {
+        return `<td data-label="CPU" class="task-cpu">${this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent))}</td>
+                    <td data-label="Mem" class="task-mem">${this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent))}</td>
+                    <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
+                    <td data-label="State"><span class="t-tag t-supplement status task-state ${this._esc(t.state)}">${this._statusContent(this.taskStateLabel(t))}</span></td>
+                    <td class="mobile-actions">${t.state === 'system' ? '' : `<button type="button" class="t-action" data-log-task="${this._esc(t.id)}" data-log-agent="${this._esc(t.agentId)}" data-log-endpoint="${this._esc(t.agentEndpoint || '')}">${icon('terminal')}Logs</button>`}</td>`;
+    },
+
+    // refreshAgentTasks haalt alle taken van het cluster (/v1/tasks), met het
+    // ritme van de agents-tabel; kern en Hop lopen mee als systeemtaak.
+    async refreshAgentTasks(gen) {
+        const tbody = document.querySelector('#agentTasksTable tbody');
+        try {
+            const reply = await this.fetchAPI('/v1/tasks');
+            if (gen !== this._gen) return;
+            const tasks = this.flatTasks(reply?.tasks_by_agent);
+            tbody.innerHTML = tasks.length ? tasks.map(t => `<tr>
+                    <td data-label="Job"><code>${this._esc(t.job_name)}</code></td>
+                    <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
+                    ${this.taskCells(t)}
+                </tr>`).join('') : '<tr><td colspan="7" class="empty">No tasks</td></tr>';
+        } catch (err) {
+            if (gen !== this._gen) return;
+            tbody.innerHTML = `<tr><td colspan="7" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
+        }
     },
 
     // ── Jobs table ─────────────────────────────────
@@ -739,17 +780,7 @@ const app = {
         try {
             const js = await this.fetchAPI(`/v1/jobs/${jobId}/status`);
             if (!isCurrent()) return;
-            const tasks = [];
-            if (js?.tasks_by_agent) {
-                for (const [agentId, agentTasks] of Object.entries(js.tasks_by_agent)) {
-                    const agent = this.agents.find(a => a.id === agentId);
-                    for (const t of agentTasks) tasks.push({ ...t, agentId, agentEndpoint: agent?.endpoint });
-                }
-            }
-            // De systeemtaken van een agent (kern en Hop, state "system") staan
-            // bovenaan zijn rijen: alleen informatie, geen logs om te volgen.
-            const sys = t => t.state === 'system' ? 0 : 1;
-            tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || sys(a) - sys(b) || a.id.localeCompare(b.id));
+            const tasks = this.flatTasks(js?.tasks_by_agent);
 
             const tbody = document.querySelector('#jobTasksTable tbody');
             const existing = {};
@@ -770,11 +801,7 @@ const app = {
                     <td data-label="Task"><code>${this._esc(t.id.slice(0, 8))}</code></td>
                     <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
                     <td data-label="Ports">${this.formatPorts(t.ports)}</td>
-                    <td data-label="CPU" class="task-cpu">${this.meter(t.cpu_percent, 100, this.formatPercent(t.cpu_percent))}</td>
-                    <td data-label="Mem" class="task-mem">${this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent))}</td>
-                    <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
-                    <td data-label="State"><span class="t-tag t-supplement status task-state ${this._esc(t.state)}">${this._statusContent(this.taskStateLabel(t))}</span></td>
-                    <td class="mobile-actions">${t.state === 'system' ? '' : `<button type="button" class="t-action" data-log-task="${this._esc(t.id)}" data-log-agent="${this._esc(t.agentId)}" data-log-endpoint="${this._esc(t.agentEndpoint || '')}">${icon('terminal')}Logs</button>`}</td>
+                    ${this.taskCells(t)}
                 </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
             }
         } catch (err) {
