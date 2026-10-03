@@ -526,7 +526,9 @@ const app = {
 
     // flatTasks maakt van tasks_by_agent één lijst, per agent gesorteerd; de
     // systeemtaken (kern en Hop, state "system") staan bovenaan bij hun agent,
-    // op pid: eerst de kern (0), dan Hop (1). memLimit is de noemer van het
+    // op pid: eerst de kern (0), dan Hop (1). De rest op core en dan op naam,
+    // zodat taken die een core delen onder elkaar staan (zonder core achteraan).
+    // memLimit is de noemer van het
     // geheugenprocent: memory_limit van de taak, of voor kern en Hop hun RAM
     // uit /v1/agents.
     flatTasks(byAgent) {
@@ -538,7 +540,16 @@ const app = {
                 memLimit: t.state === 'system' ? sysRam[t.job_name] : t.memory_limit });
         }
         const rank = t => t.state === 'system' ? (t.pid || 0) : Infinity;
-        return tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || rank(a) - rank(b) || a.id.localeCompare(b.id));
+        const core = t => t.core ?? Infinity;
+        return tasks.sort((a, b) => a.agentId.localeCompare(b.agentId) || rank(a) - rank(b)
+            || core(a) - core(b) || (a.job_name || '').localeCompare(b.job_name || '') || a.id.localeCompare(b.id));
+    },
+
+    // taskCore: de core waarop de taak draait (0 is de OS-core); met meer cores
+    // het aantal extra erachter, "1 +2" voor de cores 1 tot en met 3. Zonder core "-".
+    taskCore(t) {
+        if (t.core == null) return '-';
+        return t.cores > 1 ? `${t.core} +${t.cores - 1}` : String(t.core);
     },
 
     // taskCpu en taskMem: het procent met zijn noemer erbij, "1.0% of 1 core"
@@ -553,10 +564,11 @@ const app = {
         return this.meter(t.mem_percent, 100, this.formatPercent(t.mem_percent) + of);
     },
 
-    // taskCells: de cellen van een taakrij vanaf CPU, gedeeld door de takenlijst
+    // taskCells: de cellen van een taakrij vanaf Core, gedeeld door de takenlijst
     // van een job en die van een agent. Een systeemtaak heeft geen logs.
     taskCells(t) {
-        return `<td data-label="CPU" class="task-cpu">${this.taskCpu(t)}</td>
+        return `<td data-label="Core" class="task-core">${this._esc(this.taskCore(t))}</td>
+                    <td data-label="CPU" class="task-cpu">${this.taskCpu(t)}</td>
                     <td data-label="Mem" class="task-mem">${this.taskMem(t)}</td>
                     <td data-label="Restarts" class="task-restarts">${t.restart_count || 0}</td>
                     <td data-label="State"><span class="t-tag t-supplement status task-state ${this._esc(t.state)}">${this._statusContent(this.taskStateLabel(t))}</span></td>
@@ -583,7 +595,7 @@ const app = {
         $('agentDetailName').textContent = agentId;
         if (!this._skipPush) history.pushState(null, '', '#agents/' + encodeURIComponent(agentId));
 
-        document.querySelector('#agentTasksTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${spinner}Loading tasks…</td></tr>`;
+        document.querySelector('#agentTasksTable tbody').innerHTML = `<tr><td colspan="9" class="empty">${spinner}Loading tasks…</td></tr>`;
         await this.refreshAgentDetail(agentId);
         if (this.activeAgentId !== agentId) return;
 
@@ -604,7 +616,7 @@ const app = {
             const reply = await this.fetchAPI('/v1/tasks');
             if (!isCurrent()) return;
             if (reply?.unreachable?.includes(agentId)) {
-                tbody.innerHTML = '<tr><td colspan="8" class="empty">The agent did not answer</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="empty">The agent did not answer</td></tr>';
                 return;
             }
             const tasks = this.flatTasks({ [agentId]: reply?.tasks_by_agent?.[agentId] || [] });
@@ -613,10 +625,10 @@ const app = {
                     <td data-label="Job"><code>${this._esc(t.job_name)}</code></td>
                     <td data-label="Ports">${this._esc(this.formatPorts(t.ports))}</td>
                     ${this.taskCells(t)}
-                </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
+                </tr>`).join('') : '<tr><td colspan="9" class="empty">No tasks</td></tr>';
         } catch (err) {
             if (!isCurrent()) return;
-            tbody.innerHTML = `<tr><td colspan="8" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
         }
     },
 
@@ -760,7 +772,7 @@ const app = {
         $('jobDetailRedeploy').onclick = () => this.redeployJob(jobId);
         if (!this._skipPush) history.pushState(null, '', '#jobs/' + encodeURIComponent(jobId));
 
-        document.querySelector('#jobTasksTable tbody').innerHTML = `<tr><td colspan="8" class="empty">${spinner}Loading tasks…</td></tr>`;
+        document.querySelector('#jobTasksTable tbody').innerHTML = `<tr><td colspan="9" class="empty">${spinner}Loading tasks…</td></tr>`;
         await this.refreshJobDetail(jobId);
         if (this.activeJobId !== jobId) return;
 
@@ -860,6 +872,7 @@ const app = {
             if (tasks.length && tasks.length === Object.keys(existing).length && tasks.every(t => existing[t.id])) {
                 for (const t of tasks) {
                     const row = existing[t.id];
+                    row.querySelector('.task-core').textContent = this.taskCore(t);
                     row.querySelector('.task-cpu').innerHTML = this.taskCpu(t);
                     row.querySelector('.task-mem').innerHTML = this.taskMem(t);
                     row.querySelector('.task-restarts').textContent = t.restart_count || 0;
@@ -873,12 +886,12 @@ const app = {
                     <td data-label="Agent"><code>${this._esc(t.agentId)}</code></td>
                     <td data-label="Ports">${this._esc(this.formatPorts(t.ports))}</td>
                     ${this.taskCells(t)}
-                </tr>`).join('') : '<tr><td colspan="8" class="empty">No tasks</td></tr>';
+                </tr>`).join('') : '<tr><td colspan="9" class="empty">No tasks</td></tr>';
             }
         } catch (err) {
             if (!isCurrent()) return;
             document.querySelector('#jobTasksTable tbody').innerHTML =
-                `<tr><td colspan="8" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
+                `<tr><td colspan="9" class="empty">Failed to load tasks: ${this._esc(err.message)}</td></tr>`;
         }
     },
 
